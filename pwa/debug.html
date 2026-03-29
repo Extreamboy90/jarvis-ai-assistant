@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis PWA - Debug</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0a0e27;
+            color: #e0e0e0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 { color: #e94560; margin-bottom: 20px; }
+        h2 { color: #5ccfe6; margin: 20px 0 10px; }
+        .test {
+            background: #1a1a2e;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border-left: 4px solid #16213e;
+        }
+        .test.success { border-color: #00ff88; }
+        .test.error { border-color: #e94560; }
+        .test.pending { border-color: #ffa500; }
+        pre {
+            background: #0a0e27;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        button {
+            background: #e94560;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #d63850; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Jarvis PWA - Debug Page</h1>
+
+    <h2>📊 Environment Info</h2>
+    <div class="test">
+        <strong>Hostname:</strong> <span id="hostname"></span><br>
+        <strong>Protocol:</strong> <span id="protocol"></span><br>
+        <strong>User Agent:</strong> <span id="userAgent"></span><br>
+        <strong>LocalStorage:</strong> <span id="localStorage"></span>
+    </div>
+
+    <h2>🔗 Server Configuration</h2>
+    <div class="test">
+        <strong>PWA Server:</strong> <span id="pwaServer"></span><br>
+        <strong>Backend Server:</strong> <span id="backendServer"></span><br>
+        <strong>WebSocket URL:</strong> <span id="wsUrl"></span>
+    </div>
+
+    <h2>🧪 Connectivity Tests</h2>
+    <button onclick="runTests()">▶️ Run All Tests</button>
+    <button onclick="location.reload()">🔄 Refresh</button>
+
+    <div id="testResults"></div>
+
+    <h2>📝 Logs</h2>
+    <pre id="logs"></pre>
+
+    <script>
+        // Display environment info
+        document.getElementById('hostname').textContent = window.location.hostname;
+        document.getElementById('protocol').textContent = window.location.protocol;
+        document.getElementById('userAgent').textContent = navigator.userAgent;
+        document.getElementById('localStorage').textContent =
+            typeof(Storage) !== "undefined" ? "✅ Supported" : "❌ Not supported";
+
+        // Server URLs
+        const pwaUrl = `${window.location.protocol}//${window.location.host}`;
+        const backendUrl = window.location.hostname === 'localhost'
+            ? 'http://localhost:8000'
+            : `http://${window.location.hostname}:8000`;
+        const wsUrl = backendUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
+
+        document.getElementById('pwaServer').textContent = pwaUrl;
+        document.getElementById('backendServer').textContent = backendUrl;
+        document.getElementById('wsUrl').textContent = wsUrl;
+
+        // Logging
+        const logs = [];
+        function log(msg) {
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            const logMsg = `[${timestamp}] ${msg}`;
+            logs.push(logMsg);
+            document.getElementById('logs').textContent = logs.join('\n');
+            console.log(msg);
+        }
+
+        // Test functions
+        async function testHealth() {
+            const testDiv = document.createElement('div');
+            testDiv.className = 'test pending';
+            testDiv.innerHTML = '<strong>🏥 Health Check:</strong> Testing...';
+            document.getElementById('testResults').appendChild(testDiv);
+
+            try {
+                log(`Testing: GET ${backendUrl}/health`);
+                const response = await fetch(`${backendUrl}/health`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    testDiv.className = 'test success';
+                    testDiv.innerHTML = `<strong>✅ Health Check:</strong> OK<br><pre>${JSON.stringify(data, null, 2)}</pre>`;
+                    log(`✅ Health check passed`);
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                testDiv.className = 'test error';
+                testDiv.innerHTML = `<strong>❌ Health Check:</strong> ${error.message}`;
+                log(`❌ Health check failed: ${error.message}`);
+            }
+        }
+
+        async function testChat() {
+            const testDiv = document.createElement('div');
+            testDiv.className = 'test pending';
+            testDiv.innerHTML = '<strong>💬 Chat API:</strong> Testing...';
+            document.getElementById('testResults').appendChild(testDiv);
+
+            try {
+                log(`Testing: POST ${backendUrl}/chat`);
+                const response = await fetch(`${backendUrl}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: 'test',
+                        user_id: 'debug_test',
+                        max_history: 1
+                    })
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    testDiv.className = 'test success';
+                    testDiv.innerHTML = `<strong>✅ Chat API:</strong> OK<br><pre>${JSON.stringify(data, null, 2).substring(0, 200)}...</pre>`;
+                    log(`✅ Chat API passed`);
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                testDiv.className = 'test error';
+                testDiv.innerHTML = `<strong>❌ Chat API:</strong> ${error.message}`;
+                log(`❌ Chat API failed: ${error.message}`);
+            }
+        }
+
+        async function testWebSocket() {
+            const testDiv = document.createElement('div');
+            testDiv.className = 'test pending';
+            testDiv.innerHTML = '<strong>🔌 WebSocket:</strong> Testing...';
+            document.getElementById('testResults').appendChild(testDiv);
+
+            return new Promise((resolve) => {
+                try {
+                    const fullWsUrl = `${wsUrl}?user_id=debug_test&session_id=test123`;
+                    log(`Testing: WS ${fullWsUrl}`);
+                    const ws = new WebSocket(fullWsUrl);
+
+                    const timeout = setTimeout(() => {
+                        ws.close();
+                        testDiv.className = 'test error';
+                        testDiv.innerHTML = '<strong>❌ WebSocket:</strong> Connection timeout';
+                        log(`❌ WebSocket timeout`);
+                        resolve();
+                    }, 5000);
+
+                    ws.onopen = () => {
+                        clearTimeout(timeout);
+                        testDiv.className = 'test success';
+                        testDiv.innerHTML = '<strong>✅ WebSocket:</strong> Connected';
+                        log(`✅ WebSocket connected`);
+                        ws.close();
+                        resolve();
+                    };
+
+                    ws.onerror = (error) => {
+                        clearTimeout(timeout);
+                        testDiv.className = 'test error';
+                        testDiv.innerHTML = `<strong>❌ WebSocket:</strong> Connection error`;
+                        log(`❌ WebSocket error: ${error}`);
+                        resolve();
+                    };
+                } catch (error) {
+                    testDiv.className = 'test error';
+                    testDiv.innerHTML = `<strong>❌ WebSocket:</strong> ${error.message}`;
+                    log(`❌ WebSocket exception: ${error.message}`);
+                    resolve();
+                }
+            });
+        }
+
+        async function testCORS() {
+            const testDiv = document.createElement('div');
+            testDiv.className = 'test pending';
+            testDiv.innerHTML = '<strong>🌐 CORS:</strong> Testing...';
+            document.getElementById('testResults').appendChild(testDiv);
+
+            try {
+                log(`Testing CORS headers`);
+                const response = await fetch(`${backendUrl}/health`, {
+                    method: 'OPTIONS'
+                });
+
+                const corsHeaders = {
+                    'Access-Control-Allow-Origin': response.headers.get('Access-Control-Allow-Origin'),
+                    'Access-Control-Allow-Methods': response.headers.get('Access-Control-Allow-Methods'),
+                };
+
+                testDiv.className = 'test success';
+                testDiv.innerHTML = `<strong>✅ CORS:</strong> Configured<br><pre>${JSON.stringify(corsHeaders, null, 2)}</pre>`;
+                log(`✅ CORS configured`);
+            } catch (error) {
+                testDiv.className = 'test error';
+                testDiv.innerHTML = `<strong>❌ CORS:</strong> ${error.message}`;
+                log(`❌ CORS failed: ${error.message}`);
+            }
+        }
+
+        async function runTests() {
+            document.getElementById('testResults').innerHTML = '';
+            logs.length = 0;
+            log('🚀 Starting connectivity tests...');
+
+            await testHealth();
+            await testCORS();
+            await testChat();
+            await testWebSocket();
+
+            log('✅ All tests completed');
+        }
+
+        // Auto-run tests on load
+        window.addEventListener('load', () => {
+            setTimeout(runTests, 500);
+        });
+    </script>
+</body>
+</html>

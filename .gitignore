@@ -1,0 +1,85 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+venv/
+env/
+ENV/
+.venv
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment variables and secrets
+.env
+.env.*
+*.env
+credentials.json
+token.pickle
+api_keys.json
+config/api_keys.json
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# PostgreSQL
+postgres_data/
+*.sql
+
+# Redis
+redis_data/
+dump.rdb
+
+# Logs
+logs/
+*.log
+*.log.*
+/tmp/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# PWA
+pwa/node_modules/
+pwa/.cache/
+pwa/dist/
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+nohup.out
+
+# n8n data (if present)
+n8n/
+
+# Service-specific
+services/*/credentials.json
+services/*/token.pickle
+services/*/*.log

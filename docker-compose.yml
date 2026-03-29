@@ -1,0 +1,160 @@
+version: '3.8'
+
+services:
+  # Servizio STT (Speech-to-Text) con Faster Whisper
+  stt:
+    build: ./services/stt
+    container_name: jarvis-stt
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - WHISPER_MODEL=small  # tiny, base, small, medium, large-v2
+      - WHISPER_DEVICE=cpu
+      - WHISPER_COMPUTE_TYPE=int8
+    volumes:
+      - stt-models:/root/.cache/huggingface
+    networks:
+      - jarvis-network
+
+  # Servizio TTS (Text-to-Speech) con Piper - Primary
+  tts:
+    build: ./services/tts
+    container_name: jarvis-tts
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - PIPER_VOICE=${PIPER_VOICE}
+    networks:
+      - jarvis-network
+
+  # Servizio TTS (Text-to-Speech) con Meta MMS - Alternative
+  tts-mms:
+    build: ./services/tts-kokoro
+    container_name: jarvis-tts-mms
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    networks:
+      - jarvis-network
+
+  # PostgreSQL Database
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: jarvis-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=jarvis
+      - POSTGRES_USER=jarvis
+      - POSTGRES_PASSWORD=jarvis_password
+      - TZ=Europe/Rome
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./services/orchestrator/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - jarvis-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jarvis"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: jarvis-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - jarvis-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Orchestrator - Core dell'assistente
+  orchestrator:
+    build: ./services/orchestrator
+    container_name: jarvis-orchestrator
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - TZ=Europe/Rome
+      - STT_SERVICE_URL=http://stt:8001
+      - TTS_SERVICE_URL=http://tts:8002
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL_FAST=gemma3:1b
+      - OLLAMA_MODEL_SMART=qwen2.5:7b
+      - TUYA_API_URL=http://tuya-api:5000
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=jarvis
+      - POSTGRES_USER=jarvis
+      - POSTGRES_PASSWORD=jarvis_password
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - USE_GEMINI=true
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      stt:
+        condition: service_started
+      tts:
+        condition: service_started
+    networks:
+      - jarvis-network
+      - ollama_default
+    command: uvicorn app:app --host 0.0.0.0 --port 8000
+
+  # Telegram Bot
+  telegram-bot:
+    build: ./services/orchestrator
+    container_name: jarvis-telegram-bot
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ORCHESTRATOR_URL=http://orchestrator:8000
+      - STT_SERVICE_URL=http://stt:8001
+      - TTS_SERVICE_URL=http://tts:8002
+    depends_on:
+      - orchestrator
+      - stt
+      - tts
+    networks:
+      - jarvis-network
+    command: python telegram_bot.py
+
+  # PWA Web Interface
+  pwa:
+    build: ./pwa
+    container_name: jarvis-pwa
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    networks:
+      - jarvis-network
+    depends_on:
+      - orchestrator
+
+networks:
+  jarvis-network:
+    driver: bridge
+    external: false
+  ollama_default:
+    external: true
+
+volumes:
+  stt-models:
+    driver: local
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local

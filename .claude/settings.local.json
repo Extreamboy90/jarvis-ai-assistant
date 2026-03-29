@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(nvidia-smi)",
+      "Bash(docker exec ollama nvidia-smi)",
+      "Bash(docker compose up -d --build orchestrator)",
+      "Bash(docker logs jarvis-orchestrator --tail 20)",
+      "Bash(curl -s http://localhost:8000/functions)",
+      "Bash(kill 2038616 2038620)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

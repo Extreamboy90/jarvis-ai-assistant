@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="description" content="Jarvis AI Assistant - Il tuo assistente personale intelligente">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Jarvis">
+
+    <title>Jarvis AI Assistant</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json">
+
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/css/main.css?v=3">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="logo">
+                    <span class="logo-icon">🤖</span>
+                    <span class="logo-text">JARVIS</span>
+                </h1>
+                <div class="connection-status" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Chat Container -->
+        <main class="chat-container" id="chatContainer">
+            <div class="messages" id="messages">
+                <!-- Welcome message -->
+                <div class="message assistant-message">
+                    <div class="message-avatar">J</div>
+                    <div class="message-content">
+                        <p>Ciao! Sono Jarvis, il tuo assistente personale. Come posso aiutarti?</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Input Area -->
+        <footer class="input-area">
+            <div class="input-container">
+                <button class="btn-icon" id="btnCamera" title="Scatta foto">
+                    📷
+                </button>
+
+                <div class="input-wrapper">
+                    <input
+                        type="text"
+                        id="messageInput"
+                        placeholder="Scrivi un messaggio..."
+                        autocomplete="off"
+                    >
+                    <button class="btn-send" id="btnSend">
+                        ➤
+                    </button>
+                </div>
+
+                <button class="btn-voice" id="btnVoice" title="Premi per parlare">
+                    <span class="voice-icon">🎤</span>
+                    <span class="voice-pulse"></span>
+                </button>
+            </div>
+        </footer>
+
+        <!-- Voice Recording Overlay -->
+        <div class="voice-overlay hidden" id="voiceOverlay">
+            <div class="voice-modal">
+                <div class="voice-animation">
+                    <div class="pulse-ring"></div>
+                    <div class="pulse-ring delay-1"></div>
+                    <div class="pulse-ring delay-2"></div>
+                    <button class="voice-button active" id="voiceButton">
+                        🎤
+                    </button>
+                </div>
+                <p class="voice-text" id="voiceText">Sto ascoltando...</p>
+                <p class="voice-transcript" id="voiceTranscript"></p>
+                <button class="btn-cancel" id="btnCancelVoice">Annulla</button>
+            </div>
+        </div>
+
+        <!-- Settings Panel -->
+        <div class="settings-panel hidden" id="settingsPanel">
+            <div class="settings-content">
+                <div class="settings-header">
+                    <h2>Impostazioni</h2>
+                    <button class="btn-close" id="btnCloseSettings">✕</button>
+                </div>
+                <div class="settings-body">
+                    <div class="setting-item">
+                        <label for="serverUrl">Server URL</label>
+                        <input type="text" id="serverUrl" value="http://localhost:8000" placeholder="http://jarvis.local:8000">
+                    </div>
+                    <div class="setting-item">
+                        <label for="userId">User ID</label>
+                        <input type="text" id="userId" value="" placeholder="Il tuo nome">
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="autoSpeak" checked>
+                            Risposte vocali automatiche
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="darkMode" checked>
+                            Modalità scura
+                        </label>
+                    </div>
+                </div>
+                <div class="settings-footer">
+                    <button class="btn-primary" id="btnSaveSettings">Salva</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Floating Menu Button -->
+        <button class="fab" id="fabMenu" title="Menu">
+            ⚙️
+        </button>
+
+        <!-- User Setup Modal (first time) -->
+        <div class="user-setup-modal hidden" id="userSetupModal">
+            <div class="user-setup-content">
+                <h2>👋 Benvenuto!</h2>
+                <p>Come ti chiami? Questo mi permetterà di ricordarmi di te su tutti i tuoi dispositivi.</p>
+                <input type="text" id="userSetupName" placeholder="Il tuo nome" autocomplete="off">
+                <button class="btn-primary" id="btnSaveUserName">Continua</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/js/config.js?v=4"></script>
+    <script src="/js/api.js?v=4"></script>
+    <script src="/js/voice.js?v=4"></script>
+    <script src="/js/ui.js?v=4"></script>
+    <script src="/js/app.js?v=4"></script>
+
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then(reg => console.log('Service Worker registered', reg))
+                .catch(err => console.log('Service Worker registration failed', err));
+        }
+    </script>
+</body>
+</html>
