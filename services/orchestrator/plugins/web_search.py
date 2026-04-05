@@ -363,6 +363,111 @@ def _try_instant_answer_api(query: str, max_results: int) -> List[Dict]:
 
 
 @function(
+    name="get_weather_forecast",
+    description="Get current weather forecast for a specific location",
+    parameters={
+        "type": "object",
+        "properties": {
+            "location": {
+                "type": "string",
+                "description": "City name or location (e.g. 'Rome', 'Milan', 'Cagliari')"
+            }
+        },
+        "required": ["location"]
+    }
+)
+def get_weather_forecast(location: str) -> Dict:
+    """
+    Get weather forecast using OpenWeatherMap API or fallback to web search
+
+    This function is used by the Mission Control dashboard for daily briefings.
+    Requires OPENWEATHER_API_KEY environment variable.
+    """
+    import os
+
+    try:
+        api_key = os.getenv("OPENWEATHER_API_KEY")
+
+        if not api_key:
+            logger.warning("OPENWEATHER_API_KEY not set, falling back to web search")
+            # Fallback: search web for weather
+            search_result = search_web(f"meteo {location} oggi", max_results=3, fetch_content=False)
+
+            if search_result.get("success") and search_result.get("results"):
+                return {
+                    "success": True,
+                    "location": location,
+                    "source": "web_search",
+                    "data": search_result["results"][:2],
+                    "note": "Weather data from web search (OpenWeatherMap API not configured)"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Weather API not configured and web search failed",
+                    "location": location
+                }
+
+        # Use OpenWeatherMap API
+        url = "http://api.openweathermap.org/data/2.5/weather"
+        params = {
+            "q": location,
+            "appid": api_key,
+            "units": "metric",
+            "lang": "it"
+        }
+
+        response = requests.get(url, params=params, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+
+        # Format response
+        weather_info = {
+            "success": True,
+            "location": data.get("name", location),
+            "country": data.get("sys", {}).get("country", ""),
+            "temperature": round(data["main"]["temp"]),
+            "feels_like": round(data["main"]["feels_like"]),
+            "temp_min": round(data["main"]["temp_min"]),
+            "temp_max": round(data["main"]["temp_max"]),
+            "description": data["weather"][0]["description"],
+            "humidity": data["main"]["humidity"],
+            "pressure": data["main"]["pressure"],
+            "wind_speed": round(data["wind"]["speed"] * 3.6, 1),  # m/s to km/h
+            "clouds": data["clouds"]["all"],
+            "icon": data["weather"][0]["icon"],
+            "sunrise": data["sys"].get("sunrise"),
+            "sunset": data["sys"].get("sunset"),
+            "source": "openweathermap"
+        }
+
+        logger.info(f"Weather fetched for {location}: {weather_info['temperature']}°C, {weather_info['description']}")
+
+        return weather_info
+
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 404:
+            return {
+                "success": False,
+                "error": f"Location '{location}' not found",
+                "location": location
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Weather API error: {str(e)}",
+                "location": location
+            }
+    except Exception as e:
+        logger.error(f"Error getting weather for {location}: {e}")
+        return {
+            "success": False,
+            "error": f"Weather fetch error: {str(e)}",
+            "location": location
+        }
+
+
+@function(
     name="get_web_content",
     description="Fetch and extract text content from a specific URL",
     parameters={

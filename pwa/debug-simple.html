@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis Debug</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #000;
+            color: #0f0;
+            padding: 20px;
+            font-size: 14px;
+        }
+        .ok { color: #0f0; }
+        .error { color: #f00; }
+        .info { color: #0ff; }
+        button {
+            background: #0f0;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            margin: 10px 0;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        pre {
+            background: #111;
+            padding: 10px;
+            border: 1px solid #0f0;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 JARVIS DEBUG</h1>
+    <div id="log"></div>
+
+    <script>
+        const log = document.getElementById('log');
+
+        function addLog(msg, type = 'info') {
+            const p = document.createElement('p');
+            p.className = type;
+            p.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            log.appendChild(p);
+        }
+
+        async function testConnection() {
+            // Use same origin as page
+            const serverUrl = `${window.location.protocol}//${window.location.host}`;
+
+            addLog('===== TEST CONNESSIONE =====', 'info');
+            addLog(`Protocol: ${window.location.protocol}`, 'info');
+            addLog(`Hostname: ${window.location.hostname}`, 'info');
+            addLog(`Server URL: ${serverUrl}`, 'info');
+
+            // Test 1: Health check
+            addLog('\n[TEST 1] Health check...', 'info');
+            try {
+                const response = await fetch(`${serverUrl}/health`, {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    addLog('✅ Health check OK!', 'ok');
+                    addLog(`Response: ${JSON.stringify(data).substring(0, 100)}...`, 'ok');
+                } else {
+                    addLog(`❌ Health check failed: ${response.status} ${response.statusText}`, 'error');
+                }
+            } catch (error) {
+                addLog(`❌ Health check error: ${error.message}`, 'error');
+                addLog(`Error type: ${error.name}`, 'error');
+            }
+
+            // Test 2: Chat message
+            addLog('\n[TEST 2] Invio messaggio...', 'info');
+            try {
+                const response = await fetch(`${serverUrl}/chat`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: 'test',
+                        user_id: 'debug_test',
+                        session_id: 'debug_session'
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    addLog('✅ Chat OK!', 'ok');
+                    addLog(`Risposta: ${data.response}`, 'ok');
+                } else {
+                    addLog(`❌ Chat failed: ${response.status} ${response.statusText}`, 'error');
+                }
+            } catch (error) {
+                addLog(`❌ Chat error: ${error.message}`, 'error');
+            }
+
+            // Test 3: LocalStorage
+            addLog('\n[TEST 3] LocalStorage...', 'info');
+            try {
+                localStorage.setItem('test', 'ok');
+                const val = localStorage.getItem('test');
+                addLog(`✅ LocalStorage: ${val}`, 'ok');
+
+                const serverUrlStored = localStorage.getItem('jarvis_server_url');
+                const userIdStored = localStorage.getItem('jarvis_user_id');
+                addLog(`Server URL salvato: ${serverUrlStored}`, 'info');
+                addLog(`User ID salvato: ${userIdStored}`, 'info');
+            } catch (error) {
+                addLog(`❌ LocalStorage error: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-start test
+        addLog('Avvio test...', 'info');
+        testConnection();
+    </script>
+</body>
+</html>

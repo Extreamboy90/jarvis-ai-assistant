@@ -239,8 +239,12 @@ class GeminiClient:
 
             # If no function call, get text response
             if not result["function_call"] and not result["message"]:
-                if hasattr(response, 'text') and response.text:
-                    result["message"] = response.text
+                try:
+                    if hasattr(response, 'text'):
+                        result["message"] = response.text
+                except Exception as text_error:
+                    logger.warning(f"Could not extract text from response: {text_error}")
+                    result["message"] = ""
 
             return result
 

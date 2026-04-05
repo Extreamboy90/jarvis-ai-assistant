@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#1a1a2e">
-    <meta name="description" content="Jarvis AI Assistant - Il tuo assistente personale intelligente">
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="Jarvis AI Assistant - Futuristic HUD Interface">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Jarvis">
+    <meta name="apple-mobile-web-app-title" content="Jarvis HUD">
 
-    <title>Jarvis AI Assistant</title>
+    <title>JARVIS AI - HUD Interface</title>
 
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json">
@@ -18,49 +18,51 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
 
-    <!-- Styles -->
-    <link rel="stylesheet" href="/css/main.css?v=7">
+    <!-- Futuristic HUD Styles -->
+    <link rel="stylesheet" href="/css/jarvis-hud.css?v=1">
 
     <!-- Force Dark Theme Immediately -->
     <script>
-        // Apply dark theme before page renders to prevent flash
-        document.documentElement.style.backgroundColor = '#0a0a0f';
+        document.documentElement.style.backgroundColor = '#000000';
         document.documentElement.style.colorScheme = 'dark';
     </script>
 </head>
 <body>
     <div id="app">
-        <!-- Header -->
+        <!-- HUD Header -->
         <header class="header">
             <div class="header-content">
                 <h1 class="logo">
                     <span class="logo-icon">🤖</span>
-                    <span class="logo-text">JARVIS</span>
+                    <span class="logo-text">J.A.R.V.I.S</span>
                 </h1>
                 <div class="connection-status" id="connectionStatus">
                     <span class="status-dot"></span>
-                    <span class="status-text">Connecting...</span>
+                    <span class="status-text">INITIALIZING...</span>
                 </div>
+                <button class="btn-continuous-toggle" id="btnContinuousToggle" title="Attiva/Disattiva modalità continua">
+                    ⭕
+                </button>
             </div>
         </header>
 
-        <!-- Chat Container -->
+        <!-- Chat Container with Corner Brackets -->
         <main class="chat-container" id="chatContainer">
             <div class="messages" id="messages">
                 <!-- Welcome message -->
                 <div class="message assistant-message">
                     <div class="message-avatar">J</div>
                     <div class="message-content">
-                        <p>Ciao! Sono Jarvis, il tuo assistente personale. Come posso aiutarti?</p>
+                        <p>Sistema operativo attivo. Interfaccia HUD inizializzata. Come posso assisterti?</p>
                     </div>
                 </div>
             </div>
         </main>
 
-        <!-- Input Area -->
+        <!-- HUD Input Area -->
         <footer class="input-area">
             <div class="input-container">
-                <button class="btn-icon" id="btnCamera" title="Scatta foto">
+                <button class="btn-icon" id="btnCamera" title="Acquisizione visiva">
                     📷
                 </button>
 
@@ -68,7 +70,7 @@
                     <input
                         type="text"
                         id="messageInput"
-                        placeholder="Scrivi un messaggio..."
+                        placeholder="INSERIRE COMANDO..."
                         autocomplete="off"
                     >
                     <button class="btn-send" id="btnSend">
@@ -76,14 +78,18 @@
                     </button>
                 </div>
 
-                <button class="btn-voice" id="btnVoice" title="Premi per parlare">
+                <button class="btn-voice" id="btnVoice" title="Input vocale (tieni premuto)">
                     <span class="voice-icon">🎤</span>
                     <span class="voice-pulse"></span>
+                </button>
+
+                <button class="btn-stop-continuous hidden" id="btnStopContinuous" title="Ferma e invia">
+                    ⏹️
                 </button>
             </div>
         </footer>
 
-        <!-- Voice Recording Overlay -->
+        <!-- Voice Recording Overlay - Holographic -->
         <div class="voice-overlay hidden" id="voiceOverlay">
             <div class="voice-modal">
                 <div class="voice-animation">
@@ -94,27 +100,27 @@
                         🎤
                     </button>
                 </div>
-                <p class="voice-text" id="voiceText">Sto ascoltando...</p>
+                <p class="voice-text" id="voiceText">ASCOLTO IN CORSO...</p>
                 <p class="voice-transcript" id="voiceTranscript"></p>
-                <button class="btn-cancel" id="btnCancelVoice">Annulla</button>
+                <button class="btn-cancel" id="btnCancelVoice">ANNULLA</button>
             </div>
         </div>
 
-        <!-- Settings Panel -->
+        <!-- Settings Panel - HUD Style -->
         <div class="settings-panel hidden" id="settingsPanel">
             <div class="settings-content">
                 <div class="settings-header">
-                    <h2>Impostazioni</h2>
+                    <h2>CONFIG</h2>
                     <button class="btn-close" id="btnCloseSettings">✕</button>
                 </div>
                 <div class="settings-body">
                     <div class="setting-item">
-                        <label for="serverUrl">Server URL</label>
+                        <label for="serverUrl">SERVER URL</label>
                         <input type="text" id="serverUrl" value="http://localhost:8000" placeholder="http://jarvis.local:8000">
                     </div>
                     <div class="setting-item">
-                        <label for="userId">User ID</label>
-                        <input type="text" id="userId" value="" placeholder="Il tuo nome">
+                        <label for="userId">USER ID</label>
+                        <input type="text" id="userId" value="" placeholder="Il tuo identificativo">
                     </div>
                     <div class="setting-item">
                         <label>
@@ -124,45 +130,44 @@
                     </div>
                     <div class="setting-item">
                         <label>
-                            <input type="checkbox" id="darkMode" checked>
-                            Modalità scura
+                            <input type="checkbox" id="darkMode" checked disabled>
+                            Modalità HUD (sempre attiva)
                         </label>
                     </div>
                 </div>
                 <div class="settings-footer">
-                    <button class="btn-primary" id="btnSaveSettings">Salva</button>
+                    <button class="btn-primary" id="btnSaveSettings">SALVA CONFIG</button>
                 </div>
             </div>
         </div>
 
-        <!-- Floating Menu Button -->
-        <button class="fab" id="fabMenu" title="Menu">
+        <!-- Floating Action Button - HUD Style -->
+        <button class="fab" id="fabMenu" title="Configurazione">
             ⚙️
         </button>
 
-        <!-- User Setup Modal (first time) -->
+        <!-- User Setup Modal - Holographic -->
         <div class="user-setup-modal hidden" id="userSetupModal">
             <div class="user-setup-content">
-                <h2>👋 Benvenuto!</h2>
-                <p>Come ti chiami? Questo mi permetterà di ricordarmi di te su tutti i tuoi dispositivi.</p>
-                <input type="text" id="userSetupName" placeholder="Il tuo nome" autocomplete="off">
-                <button class="btn-primary" id="btnSaveUserName">Continua</button>
+                <h2>⚡ ACCESSO</h2>
+                <p>Identificazione utente richiesta. Inserisci il tuo nominativo per l'inizializzazione del sistema.</p>
+                <input type="text" id="userSetupName" placeholder="IDENTIFICATIVO UTENTE" autocomplete="off">
+                <button class="btn-primary" id="btnSaveUserName">INIZIALIZZA</button>
             </div>
         </div>
+
     </div>
 
     <!-- Scripts -->
-    <script src="/js/config.js?v=7"></script>
-    <script src="/js/api.js?v=7"></script>
-    <script src="/js/voice.js?v=7"></script>
-    <script src="/js/voiceloop.js?v=7"></script>
-    <script src="/js/continuous-voice.js?v=7"></script>
-    <script src="/js/ui.js?v=7"></script>
-    <script src="/js/app.js?v=7"></script>
+    <script src="/js/config.js?v=27"></script>
+    <script src="/js/api.js?v=27"></script>
+    <script src="/js/voice.js?v=27"></script>
+    <script src="/js/ui.js?v=27"></script>
+    <script src="/js/app.js?v=27"></script>
 
-    <!-- Service Worker Registration - DISABLED for cache issues -->
+    <!-- Service Worker - DISABLED -->
     <script>
-        // Unregister old service workers first
+        // Unregister old service workers
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then(function(registrations) {
                 for(let registration of registrations) {

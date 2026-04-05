@@ -34,10 +34,61 @@ class JarvisApp {
         // Setup WebSocket (optional, fallback to HTTP)
         this.setupWebSocket();
 
+        // Initialize Continuous Conversation Mode
+        await this.initializeContinuousMode();
+
         // Mark as initialized
         this.initialized = true;
 
         console.log('✅ Jarvis PWA initialized successfully');
+    }
+
+    /**
+     * Initialize continuous conversation mode
+     */
+    async initializeContinuousMode() {
+        // Initialize continuous voice loop
+        try {
+            window.continuousVoice = new ContinuousVoiceLoop(
+                api.serverUrl || CONFIG.SERVER_URL,
+                api.userId || 'voice_user'
+            );
+
+            // Setup callbacks
+            window.continuousVoice.onStatusChange = (status, message) => {
+                console.log(`Status: ${status} - ${message}`);
+                // Update UI status indicator
+                const statusEl = document.querySelector('.status-text');
+                if (statusEl) {
+                    statusEl.textContent = message;
+                }
+            };
+
+            window.continuousVoice.onTranscript = (text) => {
+                ui.addMessage(text, 'user');
+            };
+
+            window.continuousVoice.onResponse = (text) => {
+                ui.addMessage(text, 'assistant');
+            };
+
+            await window.continuousVoice.initialize();
+
+            ui.addMessage(
+                '🎙️ Loop vocale continuo attivo! Dì "Alexa" seguito dal tuo comando.',
+                'assistant'
+            );
+
+            // Auto-start continuous mode
+            await window.continuousVoice.start();
+
+        } catch (error) {
+            console.error('Failed to initialize continuous voice:', error);
+            ui.addMessage(
+                'Modalità vocale continua non disponibile. Usa il pulsante microfono per parlare.',
+                'assistant'
+            );
+        }
     }
 
     /**

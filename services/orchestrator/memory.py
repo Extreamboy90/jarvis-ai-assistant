@@ -785,3 +785,485 @@ async def cleanup_old_memories(
     except Exception as e:
         logger.error(f"Error cleaning up memories: {e}")
         return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TIME LORD - TIMELINE & TEMPORAL ANALYSIS
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def query_timeline(
+    user_id: str,
+    start_date: str,
+    end_date: str,
+    query: Optional[str] = None,
+    limit: int = 50
+) -> List[Dict]:
+    """
+    Recupera memorie in un range temporale con optional semantic filter.
+
+    Args:
+        user_id: ID dell'utente
+        start_date: Data inizio (formato ISO: YYYY-MM-DD)
+        end_date: Data fine (formato ISO: YYYY-MM-DD)
+        query: Query semantica opzionale per filtrare le memorie
+        limit: Numero massimo di risultati
+
+    Returns:
+        Lista di memorie nel range temporale, ordinate cronologicamente
+    """
+    try:
+        async with database.pg_pool.acquire() as conn:
+            if query:
+                # Con semantic search
+                query_embedding = get_embedding(query)
+                if not query_embedding:
+                    logger.warning("Failed to generate embedding for timeline query")
+                    # Fallback: query senza semantic search
+                    query = None
+
+            if query and query_embedding:
+                embedding_str = _embedding_to_pg(query_embedding)
+                rows = await conn.fetch(
+                    """
+                    SELECT
+                        snippet,
+                        category,
+                        importance,
+                        created_at,
+                        access_count,
+                        1 - (embedding <=> $1::vector) AS similarity,
+                        (metadata->>'obsolete')::boolean AS obsolete
+                    FROM memory_snippets
+                    WHERE user_id = $2
+                      AND created_at >= $3::timestamp
+                      AND created_at <= $4::timestamp
+                      AND (metadata->>'obsolete')::boolean IS NOT TRUE
+                    ORDER BY similarity DESC, created_at DESC
+                    LIMIT $5
+                    """,
+                    embedding_str, user_id, start_date, end_date, limit
+                )
+            else:
+                # Senza semantic search (solo range temporale)
+                rows = await conn.fetch(
+                    """
+                    SELECT
+                        snippet,
+                        category,
+                        importance,
+                        created_at,
+                        access_count,
+                        (metadata->>'obsolete')::boolean AS obsolete
+                    FROM memory_snippets
+                    WHERE user_id = $1
+                      AND created_at >= $2::timestamp
+                      AND created_at <= $3::timestamp
+                      AND (metadata->>'obsolete')::boolean IS NOT TRUE
+                    ORDER BY created_at DESC
+                    LIMIT $4
+                    """,
+                    user_id, start_date, end_date, limit
+                )
+
+            memories = []
+            for row in rows:
+                memory = {
+                    "snippet": row["snippet"],
+                    "category": row["category"],
+                    "importance": row["importance"],
+                    "created_at": row["created_at"].isoformat(),
+                    "access_count": row["access_count"],
+                    "obsolete": bool(row["obsolete"]),
+                }
+                if query and query_embedding:
+                    memory["similarity"] = round(float(row["similarity"]), 3)
+                memories.append(memory)
+
+            logger.info(
+                f"Timeline query for {user_id}: {len(memories)} memories "
+                f"from {start_date} to {end_date}"
+            )
+            return memories
+
+    except Exception as e:
+        logger.error(f"Error querying timeline: {e}")
+        return []
+
+
+async def generate_period_summary(
+    user_id: str,
+    period_type: str,
+    gemini_client=None,
+    ollama_url: str = None,
+    ollama_model: str = None
+) -> Dict:
+    """
+    Genera un riassunto del periodo specificato usando LLM.
+
+    Args:
+        user_id: ID dell'utente
+        period_type: Tipo di periodo ('week', 'month', 'year')
+        gemini_client: Client Gemini per generazione riassunto
+        ollama_url: URL Ollama fallback
+        ollama_model: Modello Ollama fallback
+
+    Returns:
+        Dict con summary, stats e memorie del periodo
+    """
+    try:
+        from datetime import datetime, timedelta
+
+        # Calcola range temporale
+        now = datetime.now()
+        if period_type == "week":
+            start_date = (now - timedelta(days=7)).isoformat()
+            period_label = "ultima settimana"
+        elif period_type == "month":
+            start_date = (now - timedelta(days=30)).isoformat()
+            period_label = "ultimo mese"
+        elif period_type == "year":
+            start_date = (now - timedelta(days=365)).isoformat()
+            period_label = "ultimo anno"
+        else:
+            raise ValueError(f"Invalid period_type: {period_type}")
+
+        end_date = now.isoformat()
+
+        # Recupera memorie del periodo
+        memories = await query_timeline(user_id, start_date, end_date, limit=100)
+
+        if not memories:
+            return {
+                "period": period_type,
+                "start_date": start_date,
+                "end_date": end_date,
+                "summary": f"Nessuna memoria trovata per {period_label}.",
+                "stats": {"total": 0},
+                "memories": []
+            }
+
+        # Prepara contesto per LLM
+        memories_text = "\n".join([
+            f"- [{m['created_at'][:10]}] {m['snippet']} (categoria: {m['category']}, importanza: {m['importance']})"
+            for m in memories[:50]  # Limita per non superare token limit
+        ])
+
+        prompt = f"""Analizza queste memorie dell'{period_label} e crea un riassunto strutturato.
+
+Memorie:
+{memories_text}
+
+Crea un riassunto che includa:
+1. Panoramica generale del periodo
+2. Temi principali emersi
+3. Eventi o fatti significativi
+4. Cambiamenti o evoluzioni notate
+
+Rispondi con un testo chiaro e coinvolgente (max 300 parole)."""
+
+        response_text = ""
+
+        # Prova Gemini
+        if gemini_client and gemini_client.check_availability():
+            try:
+                result = gemini_client.chat(
+                    messages=[{"role": "user", "content": prompt}],
+                    use_smart=True,
+                    temperature=0.7,
+                    max_tokens=512
+                )
+                response_text = result.get("message", "")
+                logger.info(f"Period summary generated via Gemini for {user_id}")
+            except Exception as e:
+                logger.warning(f"Gemini summary failed, fallback to Ollama: {e}")
+
+        # Fallback Ollama
+        if not response_text and ollama_url and ollama_model:
+            import requests
+            response = requests.post(
+                f"{ollama_url}/api/generate",
+                json={"model": ollama_model, "prompt": prompt, "stream": False},
+                timeout=60
+            )
+            if response.status_code == 200:
+                response_text = response.json().get("response", "")
+                logger.info(f"Period summary generated via Ollama for {user_id}")
+
+        if not response_text:
+            response_text = f"Ho trovato {len(memories)} memorie per {period_label}, ma non riesco a generare un riassunto."
+
+        # Calcola statistiche
+        stats = {
+            "total": len(memories),
+            "by_category": {},
+            "by_importance": {},
+            "avg_importance": 0
+        }
+
+        importance_sum = 0
+        for m in memories:
+            cat = m["category"]
+            imp = m["importance"]
+            stats["by_category"][cat] = stats["by_category"].get(cat, 0) + 1
+            stats["by_importance"][str(imp)] = stats["by_importance"].get(str(imp), 0) + 1
+            importance_sum += imp
+
+        if len(memories) > 0:
+            stats["avg_importance"] = round(importance_sum / len(memories), 2)
+
+        return {
+            "period": period_type,
+            "start_date": start_date,
+            "end_date": end_date,
+            "summary": response_text.strip(),
+            "stats": stats,
+            "top_memories": memories[:10]  # Top 10 memorie più recenti/rilevanti
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating period summary: {e}")
+        return {
+            "period": period_type,
+            "error": str(e)
+        }
+
+
+async def extract_recurring_themes(
+    user_id: str,
+    timeframe_days: int = 30,
+    min_occurrences: int = 3
+) -> Dict:
+    """
+    Identifica temi ricorrenti nelle conversazioni dell'utente.
+
+    Args:
+        user_id: ID dell'utente
+        timeframe_days: Giorni da analizzare
+        min_occurrences: Minimo numero di occorrenze per un tema
+
+    Returns:
+        Dict con temi ricorrenti e statistiche
+    """
+    try:
+        from datetime import datetime, timedelta
+        from collections import Counter
+
+        start_date = (datetime.now() - timedelta(days=timeframe_days)).isoformat()
+        end_date = datetime.now().isoformat()
+
+        # Recupera memorie del periodo
+        memories = await query_timeline(user_id, start_date, end_date, limit=500)
+
+        if not memories:
+            return {
+                "timeframe_days": timeframe_days,
+                "themes": [],
+                "message": "Nessuna memoria nel periodo specificato"
+            }
+
+        # Analizza categorie (temi base)
+        category_counts = Counter()
+        category_memories = {}
+
+        for m in memories:
+            cat = m["category"]
+            category_counts[cat] += 1
+            if cat not in category_memories:
+                category_memories[cat] = []
+            category_memories[cat].append(m["snippet"])
+
+        # Filtra temi ricorrenti
+        themes = []
+        for category, count in category_counts.items():
+            if count >= min_occurrences:
+                themes.append({
+                    "theme": category,
+                    "occurrences": count,
+                    "examples": category_memories[category][:3],  # Top 3 esempi
+                    "percentage": round((count / len(memories)) * 100, 1)
+                })
+
+        # Ordina per occorrenze
+        themes.sort(key=lambda x: x["occurrences"], reverse=True)
+
+        # Analisi keyword semplice (parole chiave nei snippet)
+        all_snippets = " ".join([m["snippet"].lower() for m in memories])
+
+        # Parole comuni da ignorare
+        stop_words = {
+            "il", "lo", "la", "i", "gli", "le", "un", "uno", "una",
+            "di", "a", "da", "in", "con", "su", "per", "tra", "fra",
+            "e", "o", "ma", "se", "come", "quando", "dove", "che", "chi",
+            "utente", "sono", "ha", "essere", "avere", "fare"
+        }
+
+        words = [w for w in all_snippets.split() if len(w) > 3 and w not in stop_words]
+        word_counts = Counter(words).most_common(10)
+
+        logger.info(
+            f"Extracted {len(themes)} recurring themes for {user_id} "
+            f"from {timeframe_days} days"
+        )
+
+        return {
+            "timeframe_days": timeframe_days,
+            "total_memories": len(memories),
+            "themes": themes,
+            "keywords": [{"word": w, "count": c} for w, c in word_counts]
+        }
+
+    except Exception as e:
+        logger.error(f"Error extracting recurring themes: {e}")
+        return {
+            "timeframe_days": timeframe_days,
+            "error": str(e)
+        }
+
+
+async def get_memory_stats(user_id: str) -> Dict:
+    """
+    Recupera statistiche complete sulla memoria dell'utente.
+
+    Args:
+        user_id: ID dell'utente
+
+    Returns:
+        Dict con statistiche dettagliate
+    """
+    try:
+        async with database.pg_pool.acquire() as conn:
+            # Statistiche generali
+            general_stats = await conn.fetchrow(
+                """
+                SELECT
+                    COUNT(*) as total,
+                    COUNT(*) FILTER (WHERE (metadata->>'obsolete')::boolean IS NOT TRUE) as active,
+                    COUNT(*) FILTER (WHERE (metadata->>'obsolete')::boolean = true) as obsolete,
+                    AVG(importance) as avg_importance,
+                    MAX(importance) as max_importance,
+                    MIN(importance) as min_importance,
+                    AVG(access_count) as avg_access_count,
+                    MIN(created_at) as oldest_memory,
+                    MAX(created_at) as newest_memory
+                FROM memory_snippets
+                WHERE user_id = $1
+                """,
+                user_id
+            )
+
+            # Statistiche per categoria
+            category_stats = await conn.fetch(
+                """
+                SELECT
+                    category,
+                    COUNT(*) as count,
+                    AVG(importance) as avg_importance,
+                    AVG(access_count) as avg_access_count
+                FROM memory_snippets
+                WHERE user_id = $1
+                  AND (metadata->>'obsolete')::boolean IS NOT TRUE
+                GROUP BY category
+                ORDER BY count DESC
+                """,
+                user_id
+            )
+
+            # Timeline (memorie per mese negli ultimi 6 mesi)
+            timeline = await conn.fetch(
+                """
+                SELECT
+                    DATE_TRUNC('month', created_at) as month,
+                    COUNT(*) as count
+                FROM memory_snippets
+                WHERE user_id = $1
+                  AND created_at >= NOW() - INTERVAL '6 months'
+                  AND (metadata->>'obsolete')::boolean IS NOT TRUE
+                GROUP BY month
+                ORDER BY month DESC
+                """,
+                user_id
+            )
+
+            # Top memorie più importanti
+            top_memories = await conn.fetch(
+                """
+                SELECT snippet, category, importance, created_at, access_count
+                FROM memory_snippets
+                WHERE user_id = $1
+                  AND (metadata->>'obsolete')::boolean IS NOT TRUE
+                ORDER BY importance DESC, access_count DESC
+                LIMIT 5
+                """,
+                user_id
+            )
+
+            # Memorie più accedute
+            most_accessed = await conn.fetch(
+                """
+                SELECT snippet, category, importance, access_count, last_accessed
+                FROM memory_snippets
+                WHERE user_id = $1
+                  AND (metadata->>'obsolete')::boolean IS NOT TRUE
+                ORDER BY access_count DESC
+                LIMIT 5
+                """,
+                user_id
+            )
+
+            stats = {
+                "user_id": user_id,
+                "overview": {
+                    "total_memories": int(general_stats["total"]),
+                    "active_memories": int(general_stats["active"]),
+                    "obsolete_memories": int(general_stats["obsolete"]),
+                    "avg_importance": round(float(general_stats["avg_importance"] or 0), 2),
+                    "max_importance": int(general_stats["max_importance"] or 0),
+                    "min_importance": int(general_stats["min_importance"] or 0),
+                    "avg_access_count": round(float(general_stats["avg_access_count"] or 0), 2),
+                    "oldest_memory": general_stats["oldest_memory"].isoformat() if general_stats["oldest_memory"] else None,
+                    "newest_memory": general_stats["newest_memory"].isoformat() if general_stats["newest_memory"] else None,
+                },
+                "by_category": [
+                    {
+                        "category": row["category"],
+                        "count": int(row["count"]),
+                        "avg_importance": round(float(row["avg_importance"]), 2),
+                        "avg_access_count": round(float(row["avg_access_count"]), 2),
+                    }
+                    for row in category_stats
+                ],
+                "timeline": [
+                    {
+                        "month": row["month"].strftime("%Y-%m"),
+                        "count": int(row["count"])
+                    }
+                    for row in timeline
+                ],
+                "top_memories": [
+                    {
+                        "snippet": row["snippet"],
+                        "category": row["category"],
+                        "importance": row["importance"],
+                        "created_at": row["created_at"].isoformat(),
+                        "access_count": row["access_count"],
+                    }
+                    for row in top_memories
+                ],
+                "most_accessed": [
+                    {
+                        "snippet": row["snippet"],
+                        "category": row["category"],
+                        "importance": row["importance"],
+                        "access_count": row["access_count"],
+                        "last_accessed": row["last_accessed"].isoformat(),
+                    }
+                    for row in most_accessed
+                ]
+            }
+
+            logger.info(f"Generated memory stats for {user_id}")
+            return stats
+
+    except Exception as e:
+        logger.error(f"Error getting memory stats: {e}")
+        return {"user_id": user_id, "error": str(e)}

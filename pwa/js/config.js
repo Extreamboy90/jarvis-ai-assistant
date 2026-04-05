@@ -3,10 +3,8 @@
  */
 
 const CONFIG = {
-    // Default server URL - cambierà in produzione
-    DEFAULT_SERVER_URL: window.location.hostname === 'localhost'
-        ? 'http://localhost:8000'
-        : `${window.location.protocol}//${window.location.hostname}:8000`,
+    // Default server URL - Same origin (unified server)
+    DEFAULT_SERVER_URL: `${window.location.protocol}//${window.location.host}`,
 
     // WebSocket URL
     WS_ENDPOINT: '/ws',

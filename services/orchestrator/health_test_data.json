@@ -1,0 +1,183 @@
+{
+  "fitbit_csv_example": "Date,Steps,Calories Burned,Minutes Asleep,Heart Rate Average\n2026-03-30,8523,2100,420,68\n2026-03-29,10234,2300,456,65\n2026-03-28,7891,1980,402,70\n2026-03-27,12045,2450,438,67\n2026-03-26,6234,1850,390,72\n2026-03-25,9876,2150,445,66\n2026-03-24,11234,2320,425,64",
+
+  "apple_health_json_example": {
+    "records": [
+      {
+        "type": "HKQuantityTypeIdentifierStepCount",
+        "startDate": "2026-03-30T00:00:00Z",
+        "value": 8523,
+        "unit": "count"
+      },
+      {
+        "type": "HKQuantityTypeIdentifierActiveEnergyBurned",
+        "startDate": "2026-03-30T00:00:00Z",
+        "value": 2100,
+        "unit": "kcal"
+      },
+      {
+        "type": "HKCategoryTypeIdentifierSleepAnalysis",
+        "startDate": "2026-03-29T23:00:00Z",
+        "endDate": "2026-03-30T07:00:00Z",
+        "value": 8
+      },
+      {
+        "type": "HKQuantityTypeIdentifierHeartRate",
+        "date": "2026-03-30T10:30:00Z",
+        "value": 68,
+        "unit": "bpm"
+      }
+    ]
+  },
+
+  "garmin_csv_example": "Date,Steps,Calories,Sleep Time,Avg Heart Rate\n2026-03-30,8523,2100,7:45,68\n2026-03-29,10234,2300,8:12,65\n2026-03-28,7891,1980,6:42,70",
+
+  "generic_csv_example": "date,metric_type,value\n2026-03-30,steps,8523\n2026-03-30,calories,2100\n2026-03-30,sleep,7.75\n2026-03-30,heart_rate,68\n2026-03-29,steps,10234\n2026-03-29,calories,2300\n2026-03-29,sleep,8.2\n2026-03-29,heart_rate,65",
+
+  "curl_test_examples": {
+    "sync_google_fit": "curl -X POST 'http://localhost:8000/health/user123/sync?source=google_fit&days=7'",
+
+    "import_fitbit": "curl -X POST 'http://localhost:8000/health/user123/import' -H 'Content-Type: application/json' -d '{\"user_id\":\"user123\",\"source\":\"fitbit\",\"file_content\":\"Date,Steps,Calories Burned,Minutes Asleep\\n2026-03-30,8523,2100,420\\n2026-03-29,10234,2300,456\"}'",
+
+    "get_sleep_analysis": "curl 'http://localhost:8000/health/user123/sleep?days=7'",
+
+    "get_activity_summary": "curl 'http://localhost:8000/health/user123/activity?date=2026-03-30'",
+
+    "get_heart_rate": "curl 'http://localhost:8000/health/user123/heart-rate?days=30'",
+
+    "set_goals": "curl -X POST 'http://localhost:8000/health/user123/goals' -H 'Content-Type: application/json' -d '{\"steps\":10000,\"sleep\":8,\"workouts_per_week\":3}'",
+
+    "get_wellness_report": "curl 'http://localhost:8000/health/user123/wellness-report?period=week'",
+
+    "track_nutrition": "curl -X POST 'http://localhost:8000/health/user123/nutrition?meal_description=pasta+al+pomodoro+150g+petto+di+pollo+100g+insalata'",
+
+    "workout_suggestion": "curl 'http://localhost:8000/health/user123/workout-suggestion'",
+
+    "detect_anomalies": "curl 'http://localhost:8000/health/user123/anomalies'",
+
+    "correlations": "curl 'http://localhost:8000/health/user123/correlations?metric=all&days=14'",
+
+    "disconnect_account": "curl -X DELETE 'http://localhost:8000/health/user123/disconnect?source=google_fit'",
+
+    "delete_all_data": "curl -X DELETE 'http://localhost:8000/health/user123/data?confirm=true'"
+  },
+
+  "mock_data_full_week": [
+    {
+      "user_id": "test_user",
+      "date": "2026-03-24",
+      "steps": 11234,
+      "calories": 2320,
+      "sleep_hours": 7.1,
+      "heart_rate_avg": 64,
+      "workouts": [
+        {
+          "type": "running",
+          "duration_minutes": 35,
+          "calories": 380,
+          "intensity": "high"
+        }
+      ]
+    },
+    {
+      "user_id": "test_user",
+      "date": "2026-03-25",
+      "steps": 9876,
+      "calories": 2150,
+      "sleep_hours": 7.4,
+      "heart_rate_avg": 66,
+      "workouts": []
+    },
+    {
+      "user_id": "test_user",
+      "date": "2026-03-26",
+      "steps": 6234,
+      "calories": 1850,
+      "sleep_hours": 6.5,
+      "heart_rate_avg": 72,
+      "workouts": []
+    },
+    {
+      "user_id": "test_user",
+      "date": "2026-03-27",
+      "steps": 12045,
+      "calories": 2450,
+      "sleep_hours": 7.3,
+      "heart_rate_avg": 67,
+      "workouts": [
+        {
+          "type": "cycling",
+          "duration_minutes": 45,
+          "calories": 450,
+          "intensity": "medium"
+        }
+      ]
+    },
+    {
+      "user_id": "test_user",
+      "date": "2026-03-28",
+      "steps": 7891,
+      "calories": 1980,
+      "sleep_hours": 6.7,
+      "heart_rate_avg": 70,
+      "workouts": []
+    },
+    {
+      "user_id": "test_user",
+      "date": "2026-03-29",
+      "steps": 10234,
+      "calories": 2300,
+      "sleep_hours": 8.2,
+      "heart_rate_avg": 65,
+      "workouts": [
+        {
+          "type": "yoga",
+          "duration_minutes": 60,
+          "calories": 200,
+          "intensity": "low"
+        }
+      ]
+    },
+    {
+      "user_id": "test_user",
+      "date": "2026-03-30",
+      "steps": 8523,
+      "calories": 2100,
+      "sleep_hours": 7.5,
+      "heart_rate_avg": 68,
+      "workouts": [
+        {
+          "type": "walking",
+          "duration_minutes": 30,
+          "calories": 150,
+          "intensity": "low"
+        }
+      ]
+    }
+  ],
+
+  "sql_insert_test_data": "-- Insert test health data\nINSERT INTO health_data (user_id, timestamp, metric_type, value, metadata) VALUES\n  ('test_user', '2026-03-30 00:00:00', 'steps', 8523, '{\"source\": \"test\"}'),\n  ('test_user', '2026-03-30 00:00:00', 'calories', 2100, '{\"source\": \"test\"}'),\n  ('test_user', '2026-03-30 07:00:00', 'sleep', 7.5, '{\"source\": \"test\"}'),\n  ('test_user', '2026-03-30 10:30:00', 'heart_rate', 68, '{\"source\": \"test\"}'),\n  ('test_user', '2026-03-29 00:00:00', 'steps', 10234, '{\"source\": \"test\"}'),\n  ('test_user', '2026-03-29 00:00:00', 'calories', 2300, '{\"source\": \"test\"}'),\n  ('test_user', '2026-03-29 07:30:00', 'sleep', 8.2, '{\"source\": \"test\"}');\n\n-- Insert test goals\nINSERT INTO health_goals (user_id, goal_type, target_value, current_value) VALUES\n  ('test_user', 'steps', 10000, 8523),\n  ('test_user', 'sleep', 8.0, 7.5),\n  ('test_user', 'workouts_per_week', 3, 1);\n\n-- Insert test workout\nINSERT INTO workouts (user_id, date, type, duration_minutes, calories, intensity) VALUES\n  ('test_user', '2026-03-30', 'walking', 30, 150, 'low');",
+
+  "conversation_examples": [
+    {
+      "user": "Come ho dormito questa settimana?",
+      "assistant_calls": "health_get_sleep_analysis(user_id='user123', days=7)",
+      "assistant_response": "Questa settimana hai dormito in media 7.2 ore a notte, con una qualità complessivamente buona. Ho notato che venerdì hai dormito solo 6.1 ore, mentre gli altri giorni sei stato nella norma 7-9 ore. Ti consiglio di mantenere orari regolari e di provare ad andare a letto 30 minuti prima nei giorni feriali."
+    },
+    {
+      "user": "Suggeriscimi un allenamento per oggi",
+      "assistant_calls": "health_suggest_workout(user_id='user123')",
+      "assistant_response": "Basandomi sui tuoi dati, oggi ti consiglio una corsa leggera di 30 minuti. Hai dormito bene (7.5h) e non hai ancora fatto allenamenti oggi, quindi è il momento perfetto. Programma: 5 min riscaldamento, 20 min corsa conversazionale, 5 min defaticamento. Questo ti aiuterà a raggiungere i 10k passi giornalieri!"
+    },
+    {
+      "user": "Traccia questo pasto: carbonara 200g, insalata mista, acqua",
+      "assistant_calls": "health_track_nutrition(user_id='user123', meal_description='carbonara 200g, insalata mista, acqua')",
+      "assistant_response": "Ho tracciato il tuo pasto:\n- Calorie: ~650 kcal\n- Proteine: 28g\n- Carboidrati: 75g\n- Grassi: 25g\n- Punteggio salute: 6/10\n\nLa carbonara è un piatto calorico e ricco di grassi. L'insalata bilancia bene. Consiglio: nelle prossime ore preferisci snack proteici leggeri. Ricorda: questa è una stima approssimativa!"
+    },
+    {
+      "user": "C'è una correlazione tra il mio sonno e lo stress?",
+      "assistant_calls": "health_correlate_with_memory(user_id='user123', metric='sleep', days=14)",
+      "assistant_response": "Sì, ho trovato correlazioni interessanti! Nei giorni con memorie di 'deadline' e 'riunioni importanti', il tuo sonno si riduce del 15% (media 6.2h vs 7.3h normale). Inoltre, dopo eventi stressanti come 'presentazione cliente', impieghi 1-2 giorni per recuperare il sonno ottimale. Suggerimento: pianifica buffer time nei giorni intensi e pratica tecniche di rilassamento prima di dormire."
+    }
+  ]
+}

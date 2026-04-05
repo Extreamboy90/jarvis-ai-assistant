@@ -3,7 +3,7 @@
  * Handles caching, offline support, and push notifications
  */
 
-const CACHE_NAME = 'jarvis-pwa-v4';
+const CACHE_NAME = 'jarvis-pwa-v7-dark-fix';
 const ASSETS_TO_CACHE = [
     '/',
     '/index.html',

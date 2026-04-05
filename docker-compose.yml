@@ -88,8 +88,8 @@ services:
       - STT_SERVICE_URL=http://stt:8001
       - TTS_SERVICE_URL=http://tts:8002
       - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_MODEL_FAST=gemma3:1b
-      - OLLAMA_MODEL_SMART=qwen2.5:7b
+      - OLLAMA_MODEL_FAST=gemma4:e2b
+      - OLLAMA_MODEL_SMART=gemma4:e2b
       - TUYA_API_URL=http://tuya-api:5000
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
@@ -139,6 +139,26 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3001"
+    networks:
+      - jarvis-network
+    depends_on:
+      - orchestrator
+
+  # JARVIS Voice Loop - Continuous voice assistant with wake word
+  voice-loop:
+    build: ./services/voice_loop
+    container_name: jarvis-voice-loop
+    restart: unless-stopped
+    environment:
+      - ORCHESTRATOR_URL=http://orchestrator:8000
+      - USER_ID=jarvis_voice_user
+      - WHISPER_MODEL=small
+      - WHISPER_DEVICE=cpu
+      - WHISPER_COMPUTE_TYPE=int8
+      - PIPER_VOICE=it_IT-paola-medium
+    devices:
+      - /dev/snd:/dev/snd  # Audio devices
+    privileged: true  # Necessario per accesso audio
     networks:
       - jarvis-network
     depends_on:

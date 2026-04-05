@@ -22,7 +22,10 @@ class UIManager {
             btnSend: document.getElementById('btnSend'),
             btnVoice: document.getElementById('btnVoice'),
             btnCamera: document.getElementById('btnCamera'),
+            btnContinuousToggle: document.getElementById('btnContinuousToggle'),
+            btnStopContinuous: document.getElementById('btnStopContinuous'),
             voiceOverlay: document.getElementById('voiceOverlay'),
+            voiceButton: document.getElementById('voiceButton'),
             voiceText: document.getElementById('voiceText'),
             voiceTranscript: document.getElementById('voiceTranscript'),
             btnCancelVoice: document.getElementById('btnCancelVoice'),
@@ -51,12 +54,32 @@ class UIManager {
             if (e.key === 'Enter') this.handleSendMessage();
         });
 
-        // Voice input
-        this.elements.btnVoice.addEventListener('click', () => this.handleVoiceInput());
+        // Voice input - Hold to talk
+        this.elements.btnVoice.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            this.handleVoiceStart();
+        });
+        this.elements.btnVoice.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            this.handleVoiceEnd();
+        });
+        // Desktop fallback
+        this.elements.btnVoice.addEventListener('mousedown', () => this.handleVoiceStart());
+        this.elements.btnVoice.addEventListener('mouseup', () => this.handleVoiceEnd());
         this.elements.btnCancelVoice.addEventListener('click', () => this.closeVoiceOverlay());
 
         // Camera (placeholder)
         this.elements.btnCamera.addEventListener('click', () => this.handleCamera());
+
+        // Continuous mode toggle
+        this.elements.btnContinuousToggle.addEventListener('click', () => this.toggleContinuousMode());
+
+        // Stop continuous recording button
+        this.elements.btnStopContinuous.addEventListener('click', () => {
+            if (voice.isListening) {
+                voice.stopListening();
+            }
+        });
 
         // Settings
         this.elements.fabMenu.addEventListener('click', () => this.openSettings());
@@ -89,40 +112,188 @@ class UIManager {
         if (result.success) {
             this.addMessage(result.response, 'assistant');
 
+            // Update connection status on successful message
+            this.updateConnectionStatus(true);
+
             // Auto-speak if enabled
             if (voice.autoSpeak) {
                 voice.speak(result.response);
             }
         } else {
             this.addMessage(`Errore: ${result.error}`, 'assistant', true);
+            this.updateConnectionStatus(false);
         }
     }
 
     /**
-     * Handle voice input
+     * Handle voice message from continuous mode
      */
-    handleVoiceInput() {
-        this.openVoiceOverlay();
-        this.currentTranscript = '';
+    handleVoiceMessage(transcript) {
+        console.log('Voice message received:', transcript);
 
-        voice.onTranscript((transcript, isFinal) => {
-            this.elements.voiceTranscript.textContent = transcript;
-            this.currentTranscript = transcript;
+        // Show in input field
+        this.elements.messageInput.value = transcript;
 
-            if (isFinal) {
-                // Send message
-                this.closeVoiceOverlay();
-                this.elements.messageInput.value = transcript;
-                this.handleSendMessage();
+        // Add user message to chat
+        this.addMessage(transcript, 'user');
+
+        // Show typing indicator
+        this.showTypingIndicator();
+
+        // Send to API
+        api.sendMessage(transcript).then(result => {
+            // Remove typing indicator
+            this.removeTypingIndicator();
+
+            if (result.success) {
+                this.addMessage(result.response, 'assistant');
+                this.updateConnectionStatus(true);
+
+                // Auto-speak response
+                voice.speak(result.response);
+            } else {
+                this.addMessage(`Errore: ${result.error}`, 'assistant', true);
+                this.updateConnectionStatus(false);
             }
-        });
 
-        voice.onError((error) => {
-            this.closeVoiceOverlay();
-            this.addMessage(`Errore riconoscimento vocale: ${error}`, 'assistant', true);
+            // Clear input
+            this.elements.messageInput.value = '';
         });
+    }
 
-        voice.startListening();
+    /**
+     * Handle voice start (press/hold)
+     */
+    async handleVoiceStart() {
+        console.log('🎤 Voice button pressed');
+        this.elements.btnVoice.classList.add('recording');
+
+        // Initialize voice loop if not done yet
+        if (!window.voiceLoop) {
+            const serverUrl = api.serverUrl || CONFIG.SERVER_URL;
+            const userId = api.userId || 'voice_user';
+
+            window.voiceLoop = new VoiceLoopWebSocket(serverUrl, userId);
+
+            // Setup callbacks
+            window.voiceLoop.onTranscription = (text) => {
+                console.log('📝 Transcription:', text);
+                this.addMessage(text, 'user');
+            };
+
+            window.voiceLoop.onResponse = (text) => {
+                console.log('💬 Response:', text);
+                this.addMessage(text, 'assistant');
+            };
+
+            window.voiceLoop.onError = (error) => {
+                console.error('❌ Voice error:', error);
+                this.addMessage(`Errore: ${error}`, 'assistant', true);
+                this.elements.btnVoice.classList.remove('recording');
+            };
+
+            window.voiceLoop.onAudioPlay = () => {
+                console.log('🔊 Audio playback finished');
+                this.elements.btnVoice.classList.remove('recording');
+            };
+
+            // Initialize and connect
+            await window.voiceLoop.initialize();
+            const connected = await window.voiceLoop.connect();
+
+            if (!connected) {
+                this.addMessage('Impossibile connettersi al servizio vocale', 'assistant', true);
+                this.elements.btnVoice.classList.remove('recording');
+                return;
+            }
+        }
+
+        // Start recording
+        const started = await window.voiceLoop.startRecording();
+        if (!started) {
+            this.elements.btnVoice.classList.remove('recording');
+        }
+    }
+
+    /**
+     * Handle voice end (release)
+     */
+    handleVoiceEnd() {
+        console.log('🎤 Voice button released');
+
+        if (window.voiceLoop && window.voiceLoop.isRecording) {
+            window.voiceLoop.stopRecording();
+        }
+
+        // Keep recording class until audio response plays
+        // It will be removed by onAudioPlay callback
+    }
+
+    /**
+     * Handle send message with forced voice response
+     */
+    async handleSendMessageWithVoice() {
+        const message = this.elements.messageInput.value.trim();
+        if (!message) return;
+
+        // Clear input
+        this.elements.messageInput.value = '';
+
+        // Add user message to UI
+        this.addMessage(message, 'user');
+
+        // Show typing indicator
+        this.showTypingIndicator();
+
+        // Send to API
+        const result = await api.sendMessage(message);
+
+        // Remove typing indicator
+        this.removeTypingIndicator();
+
+        if (result.success) {
+            // Add message with speaker button
+            this.addMessage(result.response, 'assistant', false, true);
+            this.updateConnectionStatus(true);
+
+            // Try to auto-play (might be blocked by Safari)
+            voice.speak(result.response).catch(() => {
+                console.log('Auto-play blocked, use speaker button');
+            });
+        } else {
+            this.addMessage(`Errore: ${result.error}`, 'assistant', true, false);
+            this.updateConnectionStatus(false);
+        }
+    }
+
+    /**
+     * Toggle continuous conversation mode
+     */
+    async toggleContinuousMode() {
+        if (voice.continuousMode) {
+            // Disable continuous mode
+            voice.stopContinuousMode();
+            this.elements.btnContinuousToggle.textContent = '⭕';
+            this.elements.btnContinuousToggle.classList.remove('active');
+            this.elements.btnStopContinuous.classList.add('hidden');
+            this.addMessage('Modalità continua disattivata. Usa il pulsante microfono.', 'assistant');
+        } else {
+            // Enable continuous mode
+            this.elements.btnContinuousToggle.textContent = '🔴';
+            this.elements.btnContinuousToggle.classList.add('active');
+            this.elements.btnStopContinuous.classList.remove('hidden');
+
+            const started = await voice.startContinuousMode();
+
+            if (started) {
+                this.addMessage('✅ Modalità continua attivata! Hai 30 secondi per parlare. Premi ⏹️ per inviare subito.', 'assistant');
+            } else {
+                this.elements.btnContinuousToggle.textContent = '⭕';
+                this.elements.btnContinuousToggle.classList.remove('active');
+                this.elements.btnStopContinuous.classList.add('hidden');
+                this.addMessage('Errore attivazione modalità continua', 'assistant', true);
+            }
+        }
     }
 
     /**
@@ -142,7 +313,7 @@ class UIManager {
     /**
      * Add message to chat
      */
-    addMessage(text, sender = 'assistant', isError = false) {
+    addMessage(text, sender = 'assistant', isError = false, enableSpeak = false) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${sender}-message${isError ? ' error-message' : ''}`;
 
@@ -157,6 +328,21 @@ class UIManager {
         p.textContent = text;
 
         content.appendChild(p);
+
+        // Add speaker button for assistant messages after voice input
+        if (sender === 'assistant' && enableSpeak && !isError) {
+            const speakerBtn = document.createElement('button');
+            speakerBtn.className = 'btn-speak-message';
+            speakerBtn.innerHTML = '🔊';
+            speakerBtn.title = 'Ascolta';
+            speakerBtn.onclick = () => {
+                voice.speak(text);
+                speakerBtn.innerHTML = '🔇';
+                setTimeout(() => speakerBtn.innerHTML = '🔊', 2000);
+            };
+            content.appendChild(speakerBtn);
+        }
+
         messageDiv.appendChild(avatar);
         messageDiv.appendChild(content);
 

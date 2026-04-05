@@ -75,10 +75,16 @@ class JarvisAPI {
      */
     async checkHealth() {
         try {
+            // Simple timeout without AbortSignal (iOS compatibility)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+
             const response = await fetch(`${this.serverUrl}${CONFIG.API_ENDPOINTS.HEALTH}`, {
                 method: 'GET',
-                signal: AbortSignal.timeout(5000) // 5 second timeout
+                signal: controller.signal
             });
+
+            clearTimeout(timeoutId);
 
             if (response.ok) {
                 const data = await response.json();
