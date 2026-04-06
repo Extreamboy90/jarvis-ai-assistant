@@ -288,30 +288,18 @@ class ContinuousVoiceLoop {
     // ── Risposta vocale breve ────────────────────────────────────────────────
 
     async _say(text) {
-        return new Promise(async (resolve) => {
-            try {
-                const resp = await fetch(`${CONFIG.TTS_URL}/speak`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text })
-                });
-                if (!resp.ok) throw new Error('TTS failed');
-                const blob = await resp.blob();
-                await this.voiceLoop.playAudio(blob);
-            } catch(e) {
-                // Fallback: speechSynthesis
-                if (window.speechSynthesis) {
-                    const u = new SpeechSynthesisUtterance(text);
-                    u.lang = 'it-IT';
-                    const v = window.speechSynthesis.getVoices().find(v => v.lang.startsWith('it'));
-                    if (v) u.voice = v;
-                    u.onend = resolve;
-                    u.onerror = resolve;
-                    window.speechSynthesis.speak(u);
-                    return;
-                }
-            }
-            resolve();
+        return new Promise((resolve) => {
+            if (!window.speechSynthesis) { resolve(); return; }
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'it-IT';
+            // Prova a usare voce italiana se disponibile
+            const voices = window.speechSynthesis.getVoices();
+            const itVoice = voices.find(v => v.lang.startsWith('it'));
+            if (itVoice) u.voice = itVoice;
+            u.onend = resolve;
+            u.onerror = resolve;
+            window.speechSynthesis.speak(u);
         });
     }
 
