@@ -163,10 +163,12 @@ class ContinuousVoiceLoop {
         if (this.fallbackRecog) { try { this.fallbackRecog.stop(); } catch(e) {} }
 
         this.conversationActive = true;
-        if (this.onStatusChange) this.onStatusChange('recording', '✅ Attivato! Ti ascolto...');
+        if (this.onStatusChange) this.onStatusChange('listening', '🟢 Attivato!');
 
         // Risposta vocale di conferma, poi piccola pausa prima di registrare
+        console.log('🗣️ Dico Dimmi...');
         await this._say('Dimmi');
+        console.log('🗣️ Dimmi detto, avvio registrazione');
         await new Promise(r => setTimeout(r, 300));
 
         await this._onCommand();
