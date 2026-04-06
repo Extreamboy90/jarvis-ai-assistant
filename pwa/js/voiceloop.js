@@ -94,6 +94,7 @@ class VoiceLoopWebSocket {
 
             if (data.type === 'response') {
                 console.log('💬 Response:', data.text);
+                this._lastResponseText = data.text; // salva per fallback TTS
                 if (this.onResponse) this.onResponse(data.text);
             }
 
@@ -210,9 +211,22 @@ class VoiceLoopWebSocket {
 
             console.log('🔊 Playing audio response...');
             audio.play().catch((e) => {
-                console.error('❌ Audio play() failed:', e);
+                console.warn('⚠️ Audio play() bloccato, uso speechSynthesis:', e.name);
                 URL.revokeObjectURL(url);
-                resolve();
+
+                // Fallback: browser TTS con il testo della risposta
+                if (this._lastResponseText && window.speechSynthesis) {
+                    const utterance = new SpeechSynthesisUtterance(this._lastResponseText);
+                    utterance.lang = 'it-IT';
+                    const voices = window.speechSynthesis.getVoices();
+                    const itVoice = voices.find(v => v.lang.startsWith('it'));
+                    if (itVoice) utterance.voice = itVoice;
+                    utterance.onend = () => resolve();
+                    utterance.onerror = () => resolve();
+                    window.speechSynthesis.speak(utterance);
+                } else {
+                    resolve();
+                }
             });
         });
     }
