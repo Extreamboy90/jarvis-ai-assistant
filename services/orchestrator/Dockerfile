@@ -12,6 +12,7 @@ COPY database.py .
 COPY memory.py .
 COPY gemini_client.py .
 COPY telegram_bot.py .
+COPY voice_websocket.py .
 COPY plugins/ ./plugins/
 COPY db/ ./db/
 
