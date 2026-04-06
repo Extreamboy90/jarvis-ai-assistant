@@ -6,9 +6,9 @@ const CONFIG = {
     // Default server URL - nginx proxia tutto sulla stessa origine (porta 443)
     DEFAULT_SERVER_URL: `${window.location.protocol}//${window.location.host}`,
 
-    // STT e TTS instradati tramite nginx (stessa origine)
-    STT_URL: `${window.location.protocol}//${window.location.host}`,
-    TTS_URL: `${window.location.protocol}//${window.location.host}`,
+    // STT e TTS instradati tramite nginx con prefisso path
+    STT_URL: `${window.location.protocol}//${window.location.host}/stt`,
+    TTS_URL: `${window.location.protocol}//${window.location.host}/tts`,
 
     // WebSocket URL
     WS_ENDPOINT: '/ws',

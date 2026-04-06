@@ -165,8 +165,9 @@ class ContinuousVoiceLoop {
         this.conversationActive = true;
         if (this.onStatusChange) this.onStatusChange('recording', '✅ Attivato! Ti ascolto...');
 
-        // Risposta vocale di conferma
+        // Risposta vocale di conferma, poi piccola pausa prima di registrare
         await this._say('Dimmi');
+        await new Promise(r => setTimeout(r, 300));
 
         await this._onCommand();
     }
