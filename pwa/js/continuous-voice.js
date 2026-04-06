@@ -89,19 +89,23 @@ class ContinuousVoiceLoop {
         if (this.isActive) return;
         this.isActive = true;
 
-        // Pre-unlock AudioContext al primo tocco/click dell'utente
-        // (Chrome richiede user gesture per AudioContext e speechSynthesis)
-        const unlockAudio = () => {
+        // Sblocca AudioContext via getUserMedia: Chrome lo considera user-activated
+        // dopo che i permessi microfono sono stati concessi (o confermati dall'utente).
+        // Questo evita di richiedere un click manuale prima della prima wake word.
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             if (!this.voiceLoop.audioContext) {
                 this.voiceLoop.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
             if (this.voiceLoop.audioContext.state === 'suspended') {
-                this.voiceLoop.audioContext.resume();
+                await this.voiceLoop.audioContext.resume();
             }
-            console.log('🔓 AudioContext pre-unlocked, state:', this.voiceLoop.audioContext.state);
-        };
-        document.addEventListener('click', unlockAudio, { once: true });
-        document.addEventListener('touchstart', unlockAudio, { once: true });
+            // Stream non serve ora — viene ricreato in startRecording()
+            stream.getTracks().forEach(t => t.stop());
+            console.log('🔓 AudioContext pronto, state:', this.voiceLoop.audioContext.state);
+        } catch(e) {
+            console.warn('⚠️ getUserMedia in start() fallita:', e.message);
+        }
 
         this._startListening();
     }
