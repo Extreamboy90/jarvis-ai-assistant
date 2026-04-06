@@ -5,7 +5,7 @@
  *
  * Flusso:
  *   1. In ascolto wake word ("Hey Jarvis" / "Alexa")
- *   2. Wake word rilevata → beep → registra comando
+ *   2. Wake word rilevata → "Dimmi" → registra comando
  *   3. Risposta audio → torna ad ascoltare
  *      - Se conversazione attiva: ascolta direttamente (no wake word)
  *      - Dopo 30s di silenzio: torna a modalità wake word
@@ -88,6 +88,21 @@ class ContinuousVoiceLoop {
     async start() {
         if (this.isActive) return;
         this.isActive = true;
+
+        // Pre-unlock AudioContext al primo tocco/click dell'utente
+        // (Chrome richiede user gesture per AudioContext e speechSynthesis)
+        const unlockAudio = () => {
+            if (!this.voiceLoop.audioContext) {
+                this.voiceLoop.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (this.voiceLoop.audioContext.state === 'suspended') {
+                this.voiceLoop.audioContext.resume();
+            }
+            console.log('🔓 AudioContext pre-unlocked, state:', this.voiceLoop.audioContext.state);
+        };
+        document.addEventListener('click', unlockAudio, { once: true });
+        document.addEventListener('touchstart', unlockAudio, { once: true });
+
         this._startListening();
     }
 
@@ -138,7 +153,7 @@ class ContinuousVoiceLoop {
 
         this._directRecog.onerror = (event) => {
             if (event.error === 'no-speech') {
-                // Silenzio: decrementa timer (già impostato in _resetConversationTimer)
+                // Silenzio: il timer di conversazione gestisce il timeout
             } else if (event.error !== 'aborted') {
                 this._endConversation();
             }
@@ -165,11 +180,11 @@ class ContinuousVoiceLoop {
         this.conversationActive = true;
         if (this.onStatusChange) this.onStatusChange('listening', '🟢 Attivato!');
 
-        // Risposta vocale di conferma, poi piccola pausa prima di registrare
+        // Risposta vocale di conferma
         console.log('🗣️ Dico Dimmi...');
         await this._say('Dimmi');
         console.log('🗣️ Dimmi detto, avvio registrazione');
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, 200));
 
         await this._onCommand();
     }
@@ -193,42 +208,76 @@ class ContinuousVoiceLoop {
             return;
         }
 
-        // Auto-stop dopo 10s
+        // Auto-stop dopo 10s (fallback di sicurezza)
         this._recordingTimeout = setTimeout(() => {
-            if (this.voiceLoop.isRecording) this.voiceLoop.stopRecording();
+            if (this.voiceLoop.isRecording) {
+                console.log('⏱️ Auto-stop registrazione dopo 10s');
+                this.voiceLoop.stopRecording();
+                if (this.onStatusChange) this.onStatusChange('processing', 'Elaboro...');
+            }
         }, 10000);
 
         this._startSilenceDetection();
     }
 
-    // ── Rilevamento silenzio ─────────────────────────────────────────────────
+    // ── Rilevamento silenzio via AnalyserNode ────────────────────────────────
 
     _startSilenceDetection() {
-        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) return;
+        const ctx = this.voiceLoop.audioContext;
+        const stream = this.voiceLoop.mediaStream;
 
-        const detector = new SR();
-        detector.lang = 'it-IT';
-        detector.continuous = true;
-        detector.interimResults = true;
+        if (!ctx || !stream) {
+            console.warn('⚠️ Silence detection: AudioContext o stream non disponibile');
+            return;
+        }
+
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        const source = ctx.createMediaStreamSource(stream);
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
 
         let lastSpeech = Date.now();
-        const SILENCE_MS = 1800;
+        let hasSpeech = false;
+        const SPEECH_THRESHOLD = 12;  // livello minimo per considerare voce
+        const SILENCE_MS = 1800;       // silenzio dopo parlato → stop
+        const MAX_WAIT_MS = 8000;      // stop anche senza parlato dopo 8s
 
-        detector.onresult = () => { lastSpeech = Date.now(); };
+        console.log('🎙️ Silence detection avviata (AnalyserNode)');
 
-        detector.onend = () => {
-            if (Date.now() - lastSpeech >= SILENCE_MS && this.voiceLoop.isRecording) {
-                clearTimeout(this._recordingTimeout);
-                this.voiceLoop.stopRecording();
-                if (this.onStatusChange) this.onStatusChange('processing', 'Elaboro...');
+        const check = () => {
+            if (!this.voiceLoop.isRecording) {
+                source.disconnect();
+                return;
             }
+
+            analyser.getByteFrequencyData(data);
+            const avg = data.reduce((a, b) => a + b, 0) / data.length;
+
+            if (avg > SPEECH_THRESHOLD) {
+                if (!hasSpeech) console.log('🎤 Voce rilevata, avg:', avg.toFixed(1));
+                lastSpeech = Date.now();
+                hasSpeech = true;
+            }
+
+            const silenceDur = Date.now() - lastSpeech;
+
+            // Stop se: parlato rilevato poi silenzio, oppure timeout massimo
+            if ((hasSpeech && silenceDur >= SILENCE_MS) || silenceDur >= MAX_WAIT_MS) {
+                source.disconnect();
+                clearTimeout(this._recordingTimeout);
+                if (this.voiceLoop.isRecording) {
+                    console.log(`🛑 Stop registrazione (hasSpeech=${hasSpeech}, silence=${silenceDur}ms)`);
+                    this.voiceLoop.stopRecording();
+                    if (this.onStatusChange) this.onStatusChange('processing', 'Elaboro...');
+                }
+                return;
+            }
+
+            requestAnimationFrame(check);
         };
 
-        try {
-            detector.start();
-            setTimeout(() => { try { detector.stop(); } catch(e) {} }, 10000);
-        } catch(e) {}
+        requestAnimationFrame(check);
     }
 
     // ── Timer conversazione (30s inattività → torna a wake word) ─────────────
@@ -290,20 +339,37 @@ class ContinuousVoiceLoop {
     // ── Risposta vocale breve ────────────────────────────────────────────────
 
     async _say(text) {
+        // Usa TTS server + AudioContext se disponibile (audio sbloccato)
+        const ctx = this.voiceLoop?.audioContext;
+        if (ctx && ctx.state === 'running') {
+            try {
+                const resp = await fetch(`${CONFIG.TTS_URL}/speak`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                if (resp.ok) {
+                    const blob = await resp.blob();
+                    await this.voiceLoop.playAudio(blob);
+                    return;
+                }
+            } catch(e) {
+                console.warn('TTS via AudioContext failed:', e.message);
+            }
+        }
+
+        // Fallback: speechSynthesis (potrebbe essere bloccato in contesti async)
         if (window.speechSynthesis) {
             window.speechSynthesis.cancel();
             const u = new SpeechSynthesisUtterance(text);
             u.lang = 'it-IT';
-            u.rate = 1.0;
-            // Carica voce italiana se disponibile
             const voices = window.speechSynthesis.getVoices();
             const itVoice = voices.find(v => v.lang.startsWith('it'));
             if (itVoice) u.voice = itVoice;
             u.onerror = (e) => console.warn('speechSynthesis error:', e.error);
             window.speechSynthesis.speak(u);
-            console.log('🗣️ speechSynthesis.speaking:', window.speechSynthesis.speaking);
         }
-        // Aspetta tempo fisso — Chrome risolve onend istantaneamente in contesti async
+        // Attendi tempo fisso per garantire che il TTS abbia il tempo di riprodursi
         await new Promise(r => setTimeout(r, 1200));
     }
 
