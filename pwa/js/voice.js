@@ -180,14 +180,12 @@ class VoiceManager {
      */
     async transcribeAudio(audioBlob) {
         try {
-            const sttUrl = `${window.location.protocol}//${window.location.host}`;
-
             const formData = new FormData();
             formData.append('audio', audioBlob, 'recording.webm');
 
             console.log('📤 Sending audio to STT...');
 
-            const response = await fetch(`${sttUrl}/stt/transcribe`, {
+            const response = await fetch(`${CONFIG.STT_URL}/transcribe`, {
                 method: 'POST',
                 body: formData
             });
@@ -232,9 +230,6 @@ class VoiceManager {
             // Mark as speaking to prevent feedback loop
             this.isSpeaking = true;
 
-            // Use backend TTS via unified server
-            const ttsUrl = `${window.location.protocol}//${window.location.host}`;
-
             console.log('🔊 Requesting TTS for:', text.substring(0, 50) + '...');
 
             // Create Audio element BEFORE fetch (Safari iOS fix)
@@ -244,15 +239,12 @@ class VoiceManager {
             audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
             audio.play().catch(() => {});
 
-            const response = await fetch(`${ttsUrl}/tts/speak`, {
+            const response = await fetch(`${CONFIG.TTS_URL}/speak`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    text: text,
-                    voice: 'it-IT-ElsaNeural'  // Edge TTS voice
-                })
+                body: JSON.stringify({ text: text })
             });
 
             if (!response.ok) {
