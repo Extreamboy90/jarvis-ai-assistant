@@ -72,14 +72,18 @@ class UIManager {
         this.elements.btnCamera.addEventListener('click', () => this.handleCamera());
 
         // Continuous mode toggle
-        this.elements.btnContinuousToggle.addEventListener('click', () => this.toggleContinuousMode());
+        if (this.elements.btnContinuousToggle) {
+            this.elements.btnContinuousToggle.addEventListener('click', () => this.toggleContinuousMode());
+        }
 
         // Stop continuous recording button
-        this.elements.btnStopContinuous.addEventListener('click', () => {
-            if (voice.isListening) {
-                voice.stopListening();
-            }
-        });
+        if (this.elements.btnStopContinuous) {
+            this.elements.btnStopContinuous.addEventListener('click', () => {
+                if (voice.isListening) {
+                    voice.stopListening();
+                }
+            });
+        }
 
         // Settings
         this.elements.fabMenu.addEventListener('click', () => this.openSettings());
@@ -270,27 +274,25 @@ class UIManager {
      * Toggle continuous conversation mode
      */
     async toggleContinuousMode() {
+        const btnToggle = this.elements.btnContinuousToggle;
+        const btnStop = this.elements.btnStopContinuous;
+
         if (voice.continuousMode) {
-            // Disable continuous mode
             voice.stopContinuousMode();
-            this.elements.btnContinuousToggle.textContent = '⭕';
-            this.elements.btnContinuousToggle.classList.remove('active');
-            this.elements.btnStopContinuous.classList.add('hidden');
+            if (btnToggle) { btnToggle.textContent = '⭕'; btnToggle.classList.remove('active'); }
+            if (btnStop) btnStop.classList.add('hidden');
             this.addMessage('Modalità continua disattivata. Usa il pulsante microfono.', 'assistant');
         } else {
-            // Enable continuous mode
-            this.elements.btnContinuousToggle.textContent = '🔴';
-            this.elements.btnContinuousToggle.classList.add('active');
-            this.elements.btnStopContinuous.classList.remove('hidden');
+            if (btnToggle) { btnToggle.textContent = '🔴'; btnToggle.classList.add('active'); }
+            if (btnStop) btnStop.classList.remove('hidden');
 
             const started = await voice.startContinuousMode();
 
             if (started) {
                 this.addMessage('✅ Modalità continua attivata! Hai 30 secondi per parlare. Premi ⏹️ per inviare subito.', 'assistant');
             } else {
-                this.elements.btnContinuousToggle.textContent = '⭕';
-                this.elements.btnContinuousToggle.classList.remove('active');
-                this.elements.btnStopContinuous.classList.add('hidden');
+                if (btnToggle) { btnToggle.textContent = '⭕'; btnToggle.classList.remove('active'); }
+                if (btnStop) btnStop.classList.add('hidden');
                 this.addMessage('Errore attivazione modalità continua', 'assistant', true);
             }
         }

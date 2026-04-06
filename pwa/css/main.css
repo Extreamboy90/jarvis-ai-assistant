@@ -3,7 +3,7 @@
    DARK THEME FIX - Text visibility corrected
    ======================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* Google Fonts caricato in modo asincrono da index.html - non bloccare il rendering */
 
 :root {
     /* Gradients for accents only */
@@ -47,14 +47,16 @@
 }
 
 html {
+    background-color: #0a0a0f !important;
     background: var(--bg-dark) !important;
     color-scheme: dark;
 }
 
 body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background-color: #0a0a0f !important;
     background: var(--bg-gradient) !important;
-    color: var(--text-primary) !important;
+    color: #ffffff !important;
     height: 100vh;
     height: -webkit-fill-available;
     overflow: hidden;

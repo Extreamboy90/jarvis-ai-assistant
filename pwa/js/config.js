@@ -3,8 +3,8 @@
  */
 
 const CONFIG = {
-    // Default server URL - Same origin (unified server)
-    DEFAULT_SERVER_URL: `${window.location.protocol}//${window.location.host}`,
+    // Default server URL - Orchestrator sempre su porta 8000
+    DEFAULT_SERVER_URL: `${window.location.protocol}//${window.location.hostname}:8000`,
 
     // WebSocket URL
     WS_ENDPOINT: '/ws',

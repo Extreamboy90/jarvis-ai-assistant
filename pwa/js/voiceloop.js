@@ -73,8 +73,9 @@ class VoiceLoopWebSocket {
             };
 
             return new Promise((resolve) => {
-                this.ws.addEventListener('open', () => resolve(true), { once: true });
-                this.ws.addEventListener('error', () => resolve(false), { once: true });
+                const timer = setTimeout(() => resolve(false), 5000);
+                this.ws.addEventListener('open', () => { clearTimeout(timer); resolve(true); }, { once: true });
+                this.ws.addEventListener('error', () => { clearTimeout(timer); resolve(false); }, { once: true });
             });
 
         } catch (error) {

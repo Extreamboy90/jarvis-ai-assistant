@@ -83,11 +83,7 @@ class JarvisApp {
             await window.continuousVoice.start();
 
         } catch (error) {
-            console.error('Failed to initialize continuous voice:', error);
-            ui.addMessage(
-                'Modalità vocale continua non disponibile. Usa il pulsante microfono per parlare.',
-                'assistant'
-            );
+            console.warn('Continuous voice not available:', error.message);
         }
     }
 
