@@ -166,71 +166,31 @@ class UIManager {
     }
 
     /**
-     * Handle voice start (press/hold)
+     * Handle voice start (press/hold) — usa VoiceManager via STT HTTP
      */
-    async handleVoiceStart() {
+    handleVoiceStart() {
         console.log('🎤 Voice button pressed');
         this.elements.btnVoice.classList.add('recording');
 
-        // Initialize voice loop if not done yet
-        if (!window.voiceLoop) {
-            const serverUrl = api.serverUrl || CONFIG.SERVER_URL;
-            const userId = api.userId || 'voice_user';
-
-            window.voiceLoop = new VoiceLoopWebSocket(serverUrl, userId);
-
-            // Setup callbacks
-            window.voiceLoop.onTranscription = (text) => {
-                console.log('📝 Transcription:', text);
-                this.addMessage(text, 'user');
-            };
-
-            window.voiceLoop.onResponse = (text) => {
-                console.log('💬 Response:', text);
-                this.addMessage(text, 'assistant');
-            };
-
-            window.voiceLoop.onError = (error) => {
-                console.error('❌ Voice error:', error);
-                this.addMessage(`Errore: ${error}`, 'assistant', true);
-                this.elements.btnVoice.classList.remove('recording');
-            };
-
-            window.voiceLoop.onAudioPlay = () => {
-                console.log('🔊 Audio playback finished');
-                this.elements.btnVoice.classList.remove('recording');
-            };
-
-            // Initialize and connect
-            await window.voiceLoop.initialize();
-            const connected = await window.voiceLoop.connect();
-
-            if (!connected) {
-                this.addMessage('Impossibile connettersi al servizio vocale', 'assistant', true);
-                this.elements.btnVoice.classList.remove('recording');
-                return;
-            }
-        }
-
-        // Start recording
-        const started = await window.voiceLoop.startRecording();
-        if (!started) {
+        voice.onTranscript((transcript) => {
             this.elements.btnVoice.classList.remove('recording');
-        }
+            if (transcript) this.handleVoiceMessage(transcript);
+        });
+
+        voice.onError(() => {
+            this.elements.btnVoice.classList.remove('recording');
+            this.addMessage('Errore microfono. Riprova.', 'assistant', true);
+        });
+
+        voice.startListening();
     }
 
     /**
-     * Handle voice end (release)
+     * Handle voice end (release) — ferma registrazione e invia a STT
      */
     handleVoiceEnd() {
         console.log('🎤 Voice button released');
-
-        if (window.voiceLoop && window.voiceLoop.isRecording) {
-            window.voiceLoop.stopRecording();
-        }
-
-        // Keep recording class until audio response plays
-        // It will be removed by onAudioPlay callback
+        voice.stopListening();
     }
 
     /**

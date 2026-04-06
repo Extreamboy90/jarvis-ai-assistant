@@ -1,6 +1,8 @@
 /**
- * Continuous Voice Loop - Always listening with wake word detection
- * Flow: Listen → Wake Word → Record → Send → Response → Loop
+ * Continuous Voice Loop
+ * Flow: Wake word ("Hey Jarvis") → registra comando → /ws/voice → risposta audio → loop
+ *
+ * Usa WakeWordDetector (ONNX) se disponibile, altrimenti SpeechRecognition come fallback.
  */
 
 class ContinuousVoiceLoop {
@@ -10,271 +12,241 @@ class ContinuousVoiceLoop {
         this.isActive = false;
         this.isProcessing = false;
 
-        // Web Speech API
-        this.recognition = null;
-        this.synthesis = window.speechSynthesis;
+        this.voiceLoop = null;       // VoiceLoopWebSocket
+        this.wakeDetector = null;    // WakeWordDetector (ONNX)
+        this.fallbackRecog = null;   // SpeechRecognition fallback
 
-        // WebSocket for audio streaming
-        this.voiceLoop = null;
-
-        // State
-        this.listeningForWakeWord = false;
-        this.recordingCommand = false;
-
-        // Callbacks
+        // Callbacks (impostati da app.js)
         this.onStatusChange = null;
         this.onTranscript = null;
         this.onResponse = null;
     }
 
     async initialize() {
-        // Check browser support
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            throw new Error('Speech Recognition not supported');
-        }
-
-        // Initialize recognition for wake word
-        this.recognition = new SpeechRecognition();
-        this.recognition.lang = 'it-IT';
-        this.recognition.continuous = true;
-        this.recognition.interimResults = false;
-
-        // Initialize voice loop WebSocket
+        // 1. Inizializza VoiceLoopWebSocket
         this.voiceLoop = new VoiceLoopWebSocket(this.serverUrl, this.userId);
 
-        // Setup voice loop callbacks
         this.voiceLoop.onTranscription = (text) => {
-            console.log('📝 Transcription:', text);
             if (this.onTranscript) this.onTranscript(text);
         };
 
         this.voiceLoop.onResponse = (text) => {
-            console.log('💬 Response:', text);
             if (this.onResponse) this.onResponse(text);
         };
 
         this.voiceLoop.onAudioPlay = async () => {
-            console.log('🔊 Audio finished, restarting loop...');
+            console.log('🔊 Audio finito, riprendo ascolto...');
             this.isProcessing = false;
-            // Restart listening after response
-            await this.startListeningForWakeWord();
+            this._startWakeWordListening();
         };
 
         this.voiceLoop.onError = (error) => {
-            console.error('❌ Voice loop error:', error);
+            console.warn('Voice loop error:', error);
             this.isProcessing = false;
-            this.startListeningForWakeWord();
+            this._startWakeWordListening();
         };
 
         await this.voiceLoop.initialize();
         const connected = await this.voiceLoop.connect();
 
         if (!connected) {
-            throw new Error('Failed to connect to voice service');
+            throw new Error('Failed to connect to voice service (/ws/voice)');
         }
 
-        console.log('✅ Continuous voice loop initialized');
+        // 2. Prova wake word ONNX
+        if (WakeWordDetector.isSupported()) {
+            try {
+                this.wakeDetector = new WakeWordDetector();
+                const ok = await this.wakeDetector.initialize();
+                if (ok) {
+                    console.log('✅ Wake word ONNX pronto');
+                    this.wakeDetector.onDetect((score) => {
+                        if (!this.isProcessing) {
+                            console.log(`🎯 Wake word! score=${score.toFixed(2)}`);
+                            this._onWakeWord();
+                        }
+                    });
+                } else {
+                    this.wakeDetector = null;
+                }
+            } catch (e) {
+                console.warn('ONNX wake word non disponibile, uso fallback:', e.message);
+                this.wakeDetector = null;
+            }
+        }
+
+        // 3. Se ONNX non disponibile, prepara SpeechRecognition fallback
+        if (!this.wakeDetector) {
+            this._initFallbackRecognition();
+        }
+
+        console.log('✅ ContinuousVoiceLoop inizializzato');
         return true;
     }
 
+    /**
+     * Avvia il loop
+     */
     async start() {
-        if (this.isActive) {
-            console.log('Already active');
-            return;
-        }
-
+        if (this.isActive) return;
         this.isActive = true;
-        console.log('🎙️ Starting continuous voice loop...');
-
-        if (this.onStatusChange) {
-            this.onStatusChange('listening', 'In ascolto per wake word...');
-        }
-
-        await this.startListeningForWakeWord();
+        this._startWakeWordListening();
     }
 
-    async startListeningForWakeWord() {
+    /**
+     * Avvia l'ascolto della wake word (ONNX o fallback)
+     */
+    _startWakeWordListening() {
         if (!this.isActive || this.isProcessing) return;
 
-        this.listeningForWakeWord = true;
-        this.recordingCommand = false;
-
-        console.log('👂 Listening for wake word (say "Alexa")...');
-
         if (this.onStatusChange) {
-            this.onStatusChange('listening', 'Dimmi "Alexa" per iniziare...');
+            const method = this.wakeDetector ? '"Hey Jarvis"' : '"Alexa"';
+            this.onStatusChange('listening', `Di' ${method} per iniziare`);
         }
 
-        // Setup recognition handlers
-        this.recognition.onresult = async (event) => {
-            const last = event.results.length - 1;
-            const transcript = event.results[last][0].transcript.toLowerCase().trim();
-
-            console.log('Heard:', transcript);
-
-            // Check for wake word
-            if (transcript.includes('alexa') || transcript.includes('alexia')) {
-                console.log('🎯 Wake word detected!');
-                this.recognition.stop();
-                await this.handleWakeWordDetected();
-            }
-        };
-
-        this.recognition.onerror = (event) => {
-            console.error('Recognition error:', event.error);
-            if (event.error !== 'no-speech' && event.error !== 'aborted') {
-                // Restart on error
-                setTimeout(() => {
-                    if (this.isActive && !this.isProcessing) {
-                        this.recognition.start();
-                    }
-                }, 1000);
-            }
-        };
-
-        this.recognition.onend = () => {
-            // Auto-restart if still active and not processing
-            if (this.isActive && !this.isProcessing && this.listeningForWakeWord) {
-                console.log('🔄 Restarting wake word detection...');
-                setTimeout(() => this.recognition.start(), 100);
-            }
-        };
-
-        try {
-            this.recognition.start();
-        } catch (error) {
-            console.error('Failed to start recognition:', error);
+        if (this.wakeDetector) {
+            this.wakeDetector.start();
+        } else {
+            this._startFallbackListening();
         }
     }
 
-    async handleWakeWordDetected() {
+    /**
+     * Quando la wake word è rilevata
+     */
+    async _onWakeWord() {
         if (this.isProcessing) return;
-
         this.isProcessing = true;
-        this.listeningForWakeWord = false;
-        this.recordingCommand = true;
 
-        console.log('🎤 Wake word activated! Recording command...');
-
-        if (this.onStatusChange) {
-            this.onStatusChange('recording', 'Ti ascolto, parla pure...');
+        // Ferma ascolto wake word
+        if (this.wakeDetector) this.wakeDetector.stop();
+        if (this.fallbackRecog) {
+            try { this.fallbackRecog.stop(); } catch(e) {}
         }
 
-        // Play feedback beep (optional)
-        this.playBeep();
+        if (this.onStatusChange) this.onStatusChange('recording', 'Ti ascolto...');
 
-        // Wait a moment for user to start speaking
-        await new Promise(resolve => setTimeout(resolve, 300));
+        // Feedback sonoro
+        this._beep();
 
-        // Start recording via voice loop
+        // Piccola pausa prima di registrare
+        await new Promise(r => setTimeout(r, 300));
+
+        // Avvia registrazione vocale via WebSocket
         const started = await this.voiceLoop.startRecording();
-
         if (!started) {
-            console.error('Failed to start recording');
+            console.error('Registrazione non avviata');
             this.isProcessing = false;
-            this.startListeningForWakeWord();
+            this._startWakeWordListening();
             return;
         }
 
-        // Auto-stop after 10 seconds (max command length)
-        this.commandTimeout = setTimeout(() => {
-            if (this.recordingCommand) {
-                console.log('⏱️ Command timeout, stopping...');
+        if (this.onStatusChange) this.onStatusChange('recording', 'Parla pure...');
+
+        // Auto-stop dopo 10 secondi
+        this._recordingTimeout = setTimeout(() => {
+            if (this.voiceLoop.isRecording) {
                 this.voiceLoop.stopRecording();
-                this.recordingCommand = false;
             }
         }, 10000);
 
-        // Detect silence to auto-stop (using Web Speech as VAD)
-        this.startSilenceDetection();
+        // Rilevamento silenzio via SpeechRecognition
+        this._startSilenceDetection();
     }
 
-    startSilenceDetection() {
-        // Create temporary recognition for silence detection
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const silenceDetector = new SpeechRecognition();
-        silenceDetector.lang = 'it-IT';
-        silenceDetector.continuous = true;
-        silenceDetector.interimResults = true;
+    /**
+     * Rilevamento silenzio per stop automatico
+     */
+    _startSilenceDetection() {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) return;
 
-        let lastSpeechTime = Date.now();
-        const SILENCE_THRESHOLD = 2000; // 2 seconds of silence
+        const detector = new SR();
+        detector.lang = 'it-IT';
+        detector.continuous = true;
+        detector.interimResults = true;
 
-        silenceDetector.onresult = (event) => {
-            // Update last speech time
-            lastSpeechTime = Date.now();
-        };
+        let lastSpeech = Date.now();
+        const SILENCE_MS = 1800;
 
-        silenceDetector.onend = () => {
-            // Check if we should stop recording
-            const silenceDuration = Date.now() - lastSpeechTime;
+        detector.onresult = () => { lastSpeech = Date.now(); };
 
-            if (silenceDuration >= SILENCE_THRESHOLD && this.recordingCommand) {
-                console.log('🔇 Silence detected, stopping recording...');
-                clearTimeout(this.commandTimeout);
+        detector.onend = () => {
+            if (Date.now() - lastSpeech >= SILENCE_MS && this.voiceLoop.isRecording) {
+                clearTimeout(this._recordingTimeout);
                 this.voiceLoop.stopRecording();
-                this.recordingCommand = false;
-
-                if (this.onStatusChange) {
-                    this.onStatusChange('processing', 'Elaborazione in corso...');
-                }
+                if (this.onStatusChange) this.onStatusChange('processing', 'Elaboro...');
             }
         };
 
-        // Start silence detection
         try {
-            silenceDetector.start();
-
-            // Stop after command timeout
-            setTimeout(() => {
-                silenceDetector.stop();
-            }, 10000);
-        } catch (error) {
-            console.warn('Silence detection not available, using timeout only');
-        }
+            detector.start();
+            setTimeout(() => { try { detector.stop(); } catch(e) {} }, 10000);
+        } catch(e) {}
     }
 
-    playBeep() {
-        // Simple beep sound to confirm wake word
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
+    // ── Fallback SpeechRecognition (senza ONNX) ──────────────────────────────
 
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
+    _initFallbackRecognition() {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) return;
 
-        oscillator.frequency.value = 800; // Hz
-        gainNode.gain.value = 0.1; // Volume
+        this.fallbackRecog = new SR();
+        this.fallbackRecog.lang = 'it-IT';
+        this.fallbackRecog.continuous = true;
+        this.fallbackRecog.interimResults = false;
 
-        oscillator.start();
-        oscillator.stop(audioContext.currentTime + 0.1); // 100ms beep
+        this.fallbackRecog.onresult = (event) => {
+            const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+            if ((transcript.includes('alexa') || transcript.includes('jarvis')) && !this.isProcessing) {
+                console.log('🎯 Wake word rilevata (fallback):', transcript);
+                this._onWakeWord();
+            }
+        };
+
+        this.fallbackRecog.onerror = (event) => {
+            if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                setTimeout(() => this._startFallbackListening(), 1000);
+            }
+        };
+
+        this.fallbackRecog.onend = () => {
+            if (this.isActive && !this.isProcessing) {
+                setTimeout(() => this._startFallbackListening(), 200);
+            }
+        };
+    }
+
+    _startFallbackListening() {
+        if (!this.fallbackRecog || !this.isActive || this.isProcessing) return;
+        try { this.fallbackRecog.start(); } catch(e) {}
+    }
+
+    // ── Utility ──────────────────────────────────────────────────────────────
+
+    _beep() {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.frequency.value = 880;
+            gain.gain.value = 0.08;
+            osc.start();
+            osc.stop(ctx.currentTime + 0.12);
+        } catch(e) {}
     }
 
     stop() {
         this.isActive = false;
-        this.listeningForWakeWord = false;
-        this.recordingCommand = false;
-
-        if (this.recognition) {
-            this.recognition.stop();
-        }
-
-        if (this.commandTimeout) {
-            clearTimeout(this.commandTimeout);
-        }
-
-        if (this.voiceLoop) {
-            this.voiceLoop.disconnect();
-        }
-
-        console.log('🛑 Continuous voice loop stopped');
-
-        if (this.onStatusChange) {
-            this.onStatusChange('stopped', 'Loop vocale fermato');
-        }
+        if (this.wakeDetector) this.wakeDetector.stop();
+        if (this.fallbackRecog) { try { this.fallbackRecog.stop(); } catch(e) {} }
+        if (this.voiceLoop) this.voiceLoop.disconnect();
+        clearTimeout(this._recordingTimeout);
+        if (this.onStatusChange) this.onStatusChange('stopped', 'Loop vocale fermato');
+        console.log('🛑 ContinuousVoiceLoop fermato');
     }
 }
 
-// Export to window
 window.ContinuousVoiceLoop = ContinuousVoiceLoop;
