@@ -191,6 +191,21 @@ class VoiceLoopWebSocket {
         console.warn('⚠️ No audio playback available');
     }
 
+    playBeep(freq = 880, duration = 0.12) {
+        if (!this.audioContext || this.audioContext.state !== 'running') return;
+        try {
+            const osc  = this.audioContext.createOscillator();
+            const gain = this.audioContext.createGain();
+            osc.connect(gain);
+            gain.connect(this.audioContext.destination);
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.08, this.audioContext.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + duration);
+            osc.start();
+            osc.stop(this.audioContext.currentTime + duration);
+        } catch(e) {}
+    }
+
     disconnect() {
         if (this.mediaRecorder?.state === 'recording') this.mediaRecorder.stop();
         this.mediaStream?.getTracks().forEach(t => t.stop());
