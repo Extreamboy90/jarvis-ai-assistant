@@ -165,8 +165,8 @@ class ContinuousVoiceLoop {
         this.conversationActive = true;
         if (this.onStatusChange) this.onStatusChange('recording', '✅ Attivato! Ti ascolto...');
 
-        // Beep tramite AudioContext già sbloccato di voiceLoop
-        this.voiceLoop.playBeep(880, 0.12);
+        // Risposta vocale di conferma
+        await this._say('Dimmi');
 
         await this._onCommand();
     }
@@ -282,6 +282,36 @@ class ContinuousVoiceLoop {
     _startFallbackListening() {
         if (!this.fallbackRecog || !this.isActive || this.isProcessing || this.conversationActive) return;
         try { this.fallbackRecog.start(); } catch(e) {}
+    }
+
+    // ── Risposta vocale breve ────────────────────────────────────────────────
+
+    async _say(text) {
+        return new Promise(async (resolve) => {
+            try {
+                const resp = await fetch(`${CONFIG.TTS_URL}/speak`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                if (!resp.ok) throw new Error('TTS failed');
+                const blob = await resp.blob();
+                await this.voiceLoop.playAudio(blob);
+            } catch(e) {
+                // Fallback: speechSynthesis
+                if (window.speechSynthesis) {
+                    const u = new SpeechSynthesisUtterance(text);
+                    u.lang = 'it-IT';
+                    const v = window.speechSynthesis.getVoices().find(v => v.lang.startsWith('it'));
+                    if (v) u.voice = v;
+                    u.onend = resolve;
+                    u.onerror = resolve;
+                    window.speechSynthesis.speak(u);
+                    return;
+                }
+            }
+            resolve();
+        });
     }
 
     // ── Stop ─────────────────────────────────────────────────────────────────

@@ -57,10 +57,15 @@ class JarvisApp {
             // Setup callbacks
             window.continuousVoice.onStatusChange = (status, message) => {
                 console.log(`Status: ${status} - ${message}`);
-                // Update UI status indicator
-                const statusEl = document.querySelector('.status-text');
-                if (statusEl) {
-                    statusEl.textContent = message;
+                const statusEl  = document.querySelector('.status-text');
+                const statusDot = document.querySelector('.status-dot');
+                if (statusEl)  statusEl.textContent = message;
+                if (statusDot) {
+                    // Rimuovi tutte le classi di stato
+                    statusDot.classList.remove('connected', 'disconnected', 'voice-listening', 'voice-recording', 'voice-processing');
+                    if (status === 'listening')   statusDot.classList.add('voice-listening');
+                    if (status === 'recording')   statusDot.classList.add('voice-recording');
+                    if (status === 'processing')  statusDot.classList.add('voice-processing');
                 }
             };
 
