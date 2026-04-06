@@ -3,12 +3,12 @@
  */
 
 const CONFIG = {
-    // Default server URL - Orchestrator sempre su porta 8000
-    DEFAULT_SERVER_URL: `${window.location.protocol}//${window.location.hostname}:8000`,
+    // Default server URL - nginx proxia tutto sulla stessa origine (porta 443)
+    DEFAULT_SERVER_URL: `${window.location.protocol}//${window.location.host}`,
 
-    // Servizi diretti
-    STT_URL: `${window.location.protocol}//${window.location.hostname}:8001`,
-    TTS_URL: `${window.location.protocol}//${window.location.hostname}:8002`,
+    // STT e TTS instradati tramite nginx (stessa origine)
+    STT_URL: `${window.location.protocol}//${window.location.host}`,
+    TTS_URL: `${window.location.protocol}//${window.location.host}`,
 
     // WebSocket URL
     WS_ENDPOINT: '/ws',
