@@ -23,19 +23,8 @@ class VoiceLoopWebSocket {
     }
 
     async initialize() {
-        try {
-            // Create audio context
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                sampleRate: 16000
-            });
-
-            console.log('✅ Voice loop initialized');
-            return true;
-
-        } catch (error) {
-            console.error('❌ Failed to initialize:', error);
-            return false;
-        }
+        console.log('✅ Voice loop initialized');
+        return true;
     }
 
     async connect() {
@@ -203,33 +192,29 @@ class VoiceLoopWebSocket {
     }
 
     async playAudio(audioBlob) {
-        try {
-            // Convert blob to ArrayBuffer
-            const arrayBuffer = await audioBlob.arrayBuffer();
+        return new Promise((resolve) => {
+            const url = URL.createObjectURL(audioBlob);
+            const audio = new Audio(url);
 
-            // Decode audio
-            const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+            audio.onended = () => {
+                console.log('✅ Audio playback finished');
+                URL.revokeObjectURL(url);
+                resolve();
+            };
 
-            // Create source
-            const source = this.audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(this.audioContext.destination);
-
-            // Play
-            source.start();
+            audio.onerror = (e) => {
+                console.error('❌ Audio playback error:', e);
+                URL.revokeObjectURL(url);
+                resolve(); // risolvi comunque per non bloccare il loop
+            };
 
             console.log('🔊 Playing audio response...');
-
-            return new Promise((resolve) => {
-                source.onended = () => {
-                    console.log('✅ Audio playback finished');
-                    resolve();
-                };
+            audio.play().catch((e) => {
+                console.error('❌ Audio play() failed:', e);
+                URL.revokeObjectURL(url);
+                resolve();
             });
-
-        } catch (error) {
-            console.error('❌ Failed to play audio:', error);
-        }
+        });
     }
 
     disconnect() {
@@ -245,11 +230,6 @@ class VoiceLoopWebSocket {
         if (this.ws) {
             this.ws.close();
             this.ws = null;
-        }
-
-        if (this.audioContext) {
-            this.audioContext.close();
-            this.audioContext = null;
         }
 
         this.isRecording = false;
