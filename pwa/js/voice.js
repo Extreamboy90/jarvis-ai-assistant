@@ -118,6 +118,12 @@ class VoiceManager {
             return false;
         }
 
+        // Su HTTP navigator.mediaDevices non è disponibile → fallback Web Speech API
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            console.warn('⚠️ navigator.mediaDevices non disponibile (HTTP). Uso Web Speech API.');
+            return this._startWebSpeech();
+        }
+
         try {
             // Get microphone access
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -213,9 +219,54 @@ class VoiceManager {
     }
 
     /**
+     * Fallback: Web Speech API per contesti HTTP (senza microfono diretto)
+     */
+    _startWebSpeech() {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) {
+            console.error('SpeechRecognition non supportato');
+            if (this.onErrorCallback) this.onErrorCallback('microfono non disponibile su HTTP');
+            return false;
+        }
+
+        this.isListening = true;
+        const recognition = new SR();
+        recognition.lang = 'it-IT';
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        this._webSpeechInstance = recognition;
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript.trim();
+            console.log('✅ Web Speech transcript:', transcript);
+            this.isListening = false;
+            if (this.onTranscriptCallback && transcript) {
+                this.onTranscriptCallback(transcript, true);
+            }
+        };
+
+        recognition.onerror = (event) => {
+            console.error('Web Speech error:', event.error);
+            this.isListening = false;
+            if (this.onErrorCallback) this.onErrorCallback(event.error);
+        };
+
+        recognition.onend = () => {
+            this.isListening = false;
+        };
+
+        recognition.start();
+        return true;
+    }
+
+    /**
      * Stop recording and process
      */
     stopListening() {
+        if (this._webSpeechInstance) {
+            try { this._webSpeechInstance.stop(); } catch(e) {}
+            this._webSpeechInstance = null;
+        }
         if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
             this.mediaRecorder.stop();
             console.log('🛑 Recording stopped, processing...');
