@@ -290,19 +290,21 @@ class ContinuousVoiceLoop {
     // ── Risposta vocale breve ────────────────────────────────────────────────
 
     async _say(text) {
-        return new Promise((resolve) => {
-            if (!window.speechSynthesis) { resolve(); return; }
+        if (window.speechSynthesis) {
             window.speechSynthesis.cancel();
             const u = new SpeechSynthesisUtterance(text);
             u.lang = 'it-IT';
-            // Prova a usare voce italiana se disponibile
+            u.rate = 1.0;
+            // Carica voce italiana se disponibile
             const voices = window.speechSynthesis.getVoices();
             const itVoice = voices.find(v => v.lang.startsWith('it'));
             if (itVoice) u.voice = itVoice;
-            u.onend = resolve;
-            u.onerror = resolve;
+            u.onerror = (e) => console.warn('speechSynthesis error:', e.error);
             window.speechSynthesis.speak(u);
-        });
+            console.log('🗣️ speechSynthesis.speaking:', window.speechSynthesis.speaking);
+        }
+        // Aspetta tempo fisso — Chrome risolve onend istantaneamente in contesti async
+        await new Promise(r => setTimeout(r, 1200));
     }
 
     // ── Stop ─────────────────────────────────────────────────────────────────
