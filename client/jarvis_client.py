@@ -119,13 +119,18 @@ def play_audio_bytes(audio_bytes: bytes):
 
 
 def say_tts(text: str, server_http: str):
-    """Chiede al server TTS e riproduce la risposta (fallback se WS non porta audio)."""
+    """Chiede al server TTS e riproduce la risposta."""
     try:
         import urllib.request
+        import ssl
         url = server_http.rstrip("/") + "/tts/speak"
         body = json.dumps({"text": text}).encode()
         req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        # Ignora errori SSL per certificati self-signed
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
             audio_bytes = resp.read()
         play_audio_bytes(audio_bytes)
     except Exception as e:
@@ -144,7 +149,7 @@ class JarvisClient:
         self.kw_spotter  = None
 
         # URL HTTP ricavato dal WS
-        self.server_http = server_ws.replace("wss://", "https://").replace("ws://", "http://")
+        self.server_http = server_ws.replace("wss://", "https://").replace("ws://", "https://")
         self.server_http = self.server_http.split("/ws/")[0]
 
     def setup(self):
@@ -205,6 +210,8 @@ class JarvisClient:
                     arr = np.frombuffer(data, dtype=np.int16)
                     prediction = self.oww_model.predict(arr)
                     for mdl, score in prediction.items():
+                        if score > 0.1:
+                            log.info(f"🔍 Score {mdl}: {score:.3f}")
                         if score > 0.5:
                             log.info(f"🎯 Wake word rilevata (score={score:.2f})")
                             return
@@ -283,11 +290,17 @@ class JarvisClient:
     async def _send_and_play(self, wav_audio: bytes):
         log.info(f"📤 Invio audio al server ({self.server_ws})...")
         try:
-            async with websockets.connect(
+            import ssl
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+
+        async with websockets.connect(
                 f"{self.server_ws}?user_id={self.user_id}",
                 ping_interval=20,
                 ping_timeout=10,
                 open_timeout=10,
+                ssl=ssl_ctx if self.server_ws.startswith("wss://") else None,
             ) as ws:
                 # Protocollo: audio_start → bytes → audio_end
                 await ws.send(json.dumps({"type": "audio_start"}))
@@ -327,7 +340,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Jarvis Native Client")
-    parser.add_argument("--server",  default=os.getenv("JARVIS_SERVER", "ws://192.168.1.131/ws/voice"))
+    parser.add_argument("--server",  default=os.getenv("JARVIS_SERVER", "wss://192.168.1.131/ws/voice"))
     parser.add_argument("--user",    default=os.getenv("JARVIS_USER",   "pc_client"))
     args = parser.parse_args()
 
