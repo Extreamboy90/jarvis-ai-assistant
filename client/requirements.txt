@@ -1,0 +1,6 @@
+pyaudio
+numpy
+websockets
+soundfile
+openwakeword
+SpeechRecognition
