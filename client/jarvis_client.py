@@ -1,7 +1,14 @@
 """
 Jarvis Native Client
 Gira in background su Windows/Mac/Linux.
-Flusso: wake word → registra → invia a /ws/voice → riproduce risposta TTS → ripete
+
+Flusso:
+  1. In ascolto wake word ("Hey Jarvis")
+  2. Wake word rilevata → "Dimmi" → registra comando
+  3. Invia audio al server → ricevi trascrizione + risposta TTS
+  4. Riproduci risposta
+  5. Modalità conversazione (30s): ascolta direttamente senza wake word
+  6. Dopo 30s inattività → torna a modalità wake word
 """
 
 import asyncio
@@ -9,6 +16,7 @@ import io
 import json
 import logging
 import os
+import ssl
 import sys
 import threading
 import time
@@ -21,18 +29,14 @@ import websockets
 
 # ── Configurazione ────────────────────────────────────────────────────────────
 
-SERVER_URL  = os.getenv("JARVIS_SERVER", "ws://192.168.1.131/ws/voice")
-USER_ID     = os.getenv("JARVIS_USER",   "pc_client")
-SAMPLE_RATE = 16000
-CHANNELS    = 1
-CHUNK       = 1024
-
-# Soglia RMS per silence detection (0-32767, più basso = più sensibile)
-SILENCE_THRESHOLD = 300
-# Secondi di silenzio dopo il parlato per fermare la registrazione
-SILENCE_AFTER_SPEECH = 1.5
-# Secondi massimi di registrazione
-MAX_RECORD_SECONDS = 15
+SAMPLE_RATE           = 16000
+CHANNELS              = 1
+CHUNK                 = 1024
+SILENCE_THRESHOLD     = 150    # RMS soglia voce (abbassato per microfono lontano)
+SILENCE_AFTER_SPEECH  = 1.5    # secondi di silenzio dopo parlato → stop
+MAX_RECORD_SECONDS    = 15     # stop massimo registrazione
+CONVERSATION_TIMEOUT  = 30     # secondi inattività → torna a wake word
+WAKE_WORD_SCORE       = 0.5    # soglia openwakeword
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,27 +46,33 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+# ── SSL context (ignora self-signed) ─────────────────────────────────────────
+
+def make_ssl_ctx():
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 # ── Wake Word ─────────────────────────────────────────────────────────────────
 
 def load_wake_word_detector():
-    """Carica openwakeword se disponibile, altrimenti usa keyword spotting semplice."""
     try:
         from openwakeword.model import Model
         model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
         log.info("✅ openwakeword caricato")
         return model
     except Exception as e:
-        log.warning(f"openwakeword non disponibile ({e}), uso keyword VAD semplice")
+        log.warning(f"openwakeword non disponibile ({e}), uso fallback SpeechRecognition")
         return None
 
 
 class KeywordSpotter:
-    """Fallback: speech_recognition offline per wake word detection."""
     def __init__(self):
         try:
             import speech_recognition as sr
             self.recognizer = sr.Recognizer()
-            self.sr = sr
             log.info("✅ SpeechRecognition caricato (fallback wake word)")
         except ImportError:
             self.recognizer = None
@@ -75,7 +85,6 @@ class KeywordSpotter:
             import speech_recognition as sr
             audio = sr.AudioData(audio_bytes, SAMPLE_RATE, 2)
             text = self.recognizer.recognize_google(audio, language="it-IT").lower()
-            log.debug(f"Keyword check: '{text}'")
             return "jarvis" in text or "alexa" in text
         except Exception:
             return False
@@ -84,22 +93,21 @@ class KeywordSpotter:
 # ── Audio Utils ───────────────────────────────────────────────────────────────
 
 def rms(data: bytes) -> float:
-    arr = np.frombuffer(data, dtype=np.int16).astype(np.float32)
-    return float(np.sqrt(np.mean(arr ** 2))) if len(arr) > 0 else 0.0
+    arr = np.frombuffer(data, dtype=np.int16).astype(np.float64)
+    return float(np.sqrt(np.mean(arr * arr))) if len(arr) > 0 else 0.0
 
 
 def pcm_to_wav(pcm_data: bytes, sample_rate: int = SAMPLE_RATE) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(CHANNELS)
-        wf.setsampwidth(2)  # int16
+        wf.setsampwidth(2)
         wf.setframerate(sample_rate)
         wf.writeframes(pcm_data)
     return buf.getvalue()
 
 
 def play_audio_bytes(audio_bytes: bytes):
-    """Riproduce audio WAV/PCM tramite PyAudio."""
     try:
         import soundfile as sf
         data, sr = sf.read(io.BytesIO(audio_bytes), dtype="int16")
@@ -119,18 +127,12 @@ def play_audio_bytes(audio_bytes: bytes):
 
 
 def say_tts(text: str, server_http: str):
-    """Chiede al server TTS e riproduce la risposta."""
     try:
         import urllib.request
-        import ssl
         url = server_http.rstrip("/") + "/tts/speak"
         body = json.dumps({"text": text}).encode()
         req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-        # Ignora errori SSL per certificati self-signed
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=make_ssl_ctx()) as resp:
             audio_bytes = resp.read()
         play_audio_bytes(audio_bytes)
     except Exception as e:
@@ -141,20 +143,21 @@ def say_tts(text: str, server_http: str):
 
 class JarvisClient:
     def __init__(self, server_ws: str, user_id: str):
-        self.server_ws   = server_ws
-        self.user_id     = user_id
-        self.running     = False
-        self.pa          = None
-        self.oww_model   = None
-        self.kw_spotter  = None
+        self.server_ws        = server_ws
+        self.user_id          = user_id
+        self.running          = False
+        self.conversation_active = False
+        self._last_interaction   = 0.0
+        self.pa               = None
+        self.oww_model        = None
+        self.kw_spotter       = None
 
-        # URL HTTP ricavato dal WS
         self.server_http = server_ws.replace("wss://", "https://").replace("ws://", "https://")
         self.server_http = self.server_http.split("/ws/")[0]
 
     def setup(self):
         self.pa = pyaudio.PyAudio()
-        self.oww_model  = load_wake_word_detector()
+        self.oww_model = load_wake_word_detector()
         if not self.oww_model:
             self.kw_spotter = KeywordSpotter()
         log.info(f"🔌 Server: {self.server_ws} | User: {self.user_id}")
@@ -173,13 +176,36 @@ class JarvisClient:
         try:
             while self.running:
                 try:
-                    self._wait_for_wake_word()
-                    if not self.running:
-                        break
-                    self._say_confirm()
-                    audio = self._record_command()
-                    if audio:
-                        asyncio.run(self._send_and_play(audio))
+                    # Controlla se la conversazione è scaduta
+                    if self.conversation_active:
+                        elapsed = time.time() - self._last_interaction
+                        if elapsed >= CONVERSATION_TIMEOUT:
+                            log.info(f"⏱️ {CONVERSATION_TIMEOUT}s inattività, torno a wake word")
+                            self.conversation_active = False
+
+                    if self.conversation_active:
+                        # Modalità conversazione: ascolta direttamente
+                        log.info("👂 Conversazione attiva, ti ascolto...")
+                        audio = self._record_command(wait_for_speech_timeout=10)
+                        if audio:
+                            self._last_interaction = time.time()
+                            asyncio.run(self._send_and_play(audio))
+                        else:
+                            # Nessuna voce nel timeout → torna a wake word
+                            log.info("💤 Nessuna voce, torno a wake word")
+                            self.conversation_active = False
+                    else:
+                        # Modalità wake word
+                        self._wait_for_wake_word()
+                        if not self.running:
+                            break
+                        self.conversation_active = True
+                        self._last_interaction = time.time()
+                        say_tts("Dimmi", self.server_http)
+                        audio = self._record_command()
+                        if audio:
+                            asyncio.run(self._send_and_play(audio))
+
                 except KeyboardInterrupt:
                     break
                 except Exception as e:
@@ -193,16 +219,14 @@ class JarvisClient:
 
     def _wait_for_wake_word(self):
         log.info('👂 In ascolto wake word...')
+        oww_chunk = 1280
         stream = self.pa.open(
             format=pyaudio.paInt16,
             channels=CHANNELS,
             rate=SAMPLE_RATE,
             input=True,
-            frames_per_buffer=CHUNK
+            frames_per_buffer=oww_chunk if self.oww_model else CHUNK
         )
-        # openwakeword lavora con chunk da 1280 campioni @ 16kHz
-        oww_chunk = 1280
-
         try:
             while self.running:
                 if self.oww_model:
@@ -210,13 +234,12 @@ class JarvisClient:
                     arr = np.frombuffer(data, dtype=np.int16)
                     prediction = self.oww_model.predict(arr)
                     for mdl, score in prediction.items():
-                        if score > 0.1:
-                            log.info(f"🔍 Score {mdl}: {score:.3f}")
-                        if score > 0.5:
+                        if score > 0.3:
+                            log.debug(f"Score {mdl}: {score:.3f}")
+                        if score >= WAKE_WORD_SCORE:
                             log.info(f"🎯 Wake word rilevata (score={score:.2f})")
                             return
                 else:
-                    # Fallback: accumula 2 secondi e controlla keyword
                     frames = []
                     for _ in range(int(SAMPLE_RATE / CHUNK * 2)):
                         frames.append(stream.read(CHUNK, exception_on_overflow=False))
@@ -230,14 +253,13 @@ class JarvisClient:
             stream.stop_stream()
             stream.close()
 
-    def _say_confirm(self):
-        """Dice 'Dimmi' tramite TTS server."""
-        log.info("🗣️ Dico Dimmi...")
-        say_tts("Dimmi", self.server_http)
-
     # ── Registrazione comando ─────────────────────────────────────────────────
 
-    def _record_command(self) -> Optional[bytes]:
+    def _record_command(self, wait_for_speech_timeout: float = MAX_RECORD_SECONDS) -> Optional[bytes]:
+        """
+        Registra finché c'è voce + silenzio finale.
+        wait_for_speech_timeout: secondi massimi ad aspettare che inizi il parlato.
+        """
         log.info("🎤 Registrazione in corso...")
         stream = self.pa.open(
             format=pyaudio.paInt16,
@@ -250,6 +272,7 @@ class JarvisClient:
         frames = []
         has_speech = False
         silence_start = None
+        speech_wait_start = time.time()
         start_time = time.time()
 
         try:
@@ -265,7 +288,11 @@ class JarvisClient:
                     if silence_start is None:
                         silence_start = time.time()
                     elif time.time() - silence_start >= SILENCE_AFTER_SPEECH:
-                        log.info(f"🛑 Silenzio rilevato, stop registrazione")
+                        log.info("🛑 Silenzio rilevato, stop registrazione")
+                        break
+                else:
+                    # Nessuna voce ancora: controlla timeout di attesa
+                    if time.time() - speech_wait_start >= wait_for_speech_timeout:
                         break
 
                 if time.time() - start_time >= MAX_RECORD_SECONDS:
@@ -277,7 +304,6 @@ class JarvisClient:
             stream.close()
 
         if not has_speech:
-            log.warning("⚠️ Nessuna voce registrata")
             return None
 
         pcm = b"".join(frames)
@@ -288,36 +314,32 @@ class JarvisClient:
     # ── Invia al server e riproduci risposta ──────────────────────────────────
 
     async def _send_and_play(self, wav_audio: bytes):
-        log.info(f"📤 Invio audio al server ({self.server_ws})...")
-        try:
-            import ssl
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
+        log.info(f"📤 Invio audio al server...")
+        ssl_ctx = make_ssl_ctx()
 
-        async with websockets.connect(
+        try:
+            async with websockets.connect(
                 f"{self.server_ws}?user_id={self.user_id}",
                 ping_interval=20,
                 ping_timeout=10,
                 open_timeout=10,
                 ssl=ssl_ctx if self.server_ws.startswith("wss://") else None,
             ) as ws:
-                # Protocollo: audio_start → bytes → audio_end
                 await ws.send(json.dumps({"type": "audio_start"}))
-                # Invia in chunk
                 chunk_size = 4096
                 for i in range(0, len(wav_audio), chunk_size):
                     await ws.send(wav_audio[i:i+chunk_size])
                 await ws.send(json.dumps({"type": "audio_end"}))
                 log.info("📤 Audio inviato, attendo risposta...")
 
-                # Ricevi risposta
                 async for message in ws:
                     if isinstance(message, bytes):
-                        log.info(f"🔊 Audio risposta ricevuto ({len(message)} bytes), riproduco...")
-                        threading.Thread(
-                            target=play_audio_bytes, args=(message,), daemon=True
-                        ).start()
+                        log.info(f"🔊 Audio risposta ({len(message)} bytes), riproduco...")
+                        # Riproduci in un thread bloccante così aspettiamo la fine
+                        t = threading.Thread(target=play_audio_bytes, args=(message,), daemon=True)
+                        t.start()
+                        t.join()
+                        self._last_interaction = time.time()
                         break
                     else:
                         data = json.loads(message)
@@ -340,8 +362,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Jarvis Native Client")
-    parser.add_argument("--server",  default=os.getenv("JARVIS_SERVER", "wss://192.168.1.131/ws/voice"))
-    parser.add_argument("--user",    default=os.getenv("JARVIS_USER",   "pc_client"))
+    parser.add_argument("--server", default=os.getenv("JARVIS_SERVER", "wss://192.168.1.131/ws/voice"))
+    parser.add_argument("--user",   default=os.getenv("JARVIS_USER",   "pc_client"))
     args = parser.parse_args()
 
     client = JarvisClient(server_ws=args.server, user_id=args.user)
