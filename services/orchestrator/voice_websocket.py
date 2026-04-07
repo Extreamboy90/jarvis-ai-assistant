@@ -117,7 +117,12 @@ class VoiceWebSocketHandler:
     def _transcribe(self, audio_data: bytes) -> Optional[str]:
         """Send audio to STT service"""
         try:
-            files = {"audio": ("recording.webm", io.BytesIO(audio_data), "audio/webm")}
+            # Rileva formato: WAV inizia con b'RIFF', WebM con b'\x1a\x45'
+            if audio_data[:4] == b"RIFF":
+                fname, mime = "recording.wav", "audio/wav"
+            else:
+                fname, mime = "recording.webm", "audio/webm"
+            files = {"audio": (fname, io.BytesIO(audio_data), mime)}
             resp = requests.post(f"{STT_SERVICE_URL}/transcribe", files=files, timeout=30)
             resp.raise_for_status()
             data = resp.json()

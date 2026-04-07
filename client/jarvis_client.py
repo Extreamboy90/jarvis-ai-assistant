@@ -9,12 +9,11 @@ import io
 import json
 import logging
 import os
-import queue
 import sys
-import tempfile
 import threading
 import time
 import wave
+from typing import Optional
 
 import numpy as np
 import pyaudio
@@ -231,7 +230,7 @@ class JarvisClient:
 
     # ── Registrazione comando ─────────────────────────────────────────────────
 
-    def _record_command(self) -> bytes | None:
+    def _record_command(self) -> Optional[bytes]:
         log.info("🎤 Registrazione in corso...")
         stream = self.pa.open(
             format=pyaudio.paInt16,
