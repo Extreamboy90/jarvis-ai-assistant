@@ -22,6 +22,8 @@ def preprocess_text(text: str) -> str:
     text = re.sub(r'[-*•]\s+', '. ', text)
     text = re.sub(r'\n+', '. ', text)
     text = re.sub(r'\s+([.,;:!?])', r'\1', text)
+    # "J" italiana suona come "I", fix pronuncia nomi inglesi
+    text = re.sub(r'\bJarvis\b', 'Giarvis', text, flags=re.IGNORECASE)
     return text.strip()
 
 
