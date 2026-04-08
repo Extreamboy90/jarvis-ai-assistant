@@ -39,6 +39,18 @@ services:
     networks:
       - jarvis-network
 
+  # Servizio TTS (Text-to-Speech) con Edge TTS - Test
+  tts-edge:
+    build: ./services/tts-edge
+    container_name: jarvis-tts-edge
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      - EDGE_TTS_VOICE=${EDGE_TTS_VOICE:-it-IT-DiegoNeural}
+    networks:
+      - jarvis-network
+
   # PostgreSQL Database
   postgres:
     image: ankane/pgvector:latest
